@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#13212b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="BU Scan Test">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Backyard Scanner Performance Test</title>
+  <style>
+    :root {
+      --bg: #13212b;
+      --panel: #1d3442;
+      --ink: #f6f0e5;
+      --muted: #d5cab7;
+      --accent: #d97b29;
+      --good: #5efc8d;
+      --border: #35515f;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      background: linear-gradient(180deg, #0f1b22 0, var(--bg) 100%);
+      color: var(--ink);
+    }
+
+    body.flip-page {
+      transform: rotate(180deg);
+      transform-origin: center center;
+      width: 100vw;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .panel {
+      min-height: 100vh;
+      background: var(--panel);
+    }
+
+    .video-wrap {
+      position: relative;
+      overflow: hidden;
+      background: #091116;
+      width: 100vw;
+      height: 62vh;
+      height: 62dvh;
+    }
+
+    video,
+    canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transform: rotate(var(--camera-rotation, 0deg));
+      transform-origin: center center;
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .controls {
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      padding: 14px 16px 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.45rem;
+    }
+
+    input,
+    button,
+    select {
+      font: inherit;
+      padding: 7px 9px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    input {
+      background: #f7f1e4;
+      color: #1d1b18;
+    }
+
+    button {
+      border: 0;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin: 12px 0;
+    }
+
+    .toolbar button {
+      min-width: 112px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      margin: 12px 0;
+    }
+
+    .metric,
+    .meta-panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(9, 17, 22, 0.32);
+      padding: 10px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 1.2rem;
+    }
+
+    .meta-panel h2 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+
+    .control-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .control-item {
+      display: grid;
+      gap: 4px;
+    }
+
+    .control-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      font-size: 0.92rem;
+    }
+
+    .control-item input[type="range"] {
+      width: 100%;
+      padding: 0;
+    }
+
+    .control-item select {
+      justify-self: start;
+    }
+
+    .status,
+    .note {
+      color: var(--muted);
+      white-space: pre-line;
+    }
+
+    .status {
+      min-height: 24px;
+      margin: 12px 0;
+    }
+
+    .hits {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 0.92rem;
+    }
+
+    .hits th,
+    .hits td {
+      border-bottom: 1px solid var(--border);
+      padding: 7px 5px;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <section class="panel">
+    <div class="video-wrap">
+      <video id="camera" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <div class="controls">
+      <h1>Scanner Performance Test</h1>
+      <p class="note">Static GitHub Pages build. Detector libraries load from jsDelivr, and marker detections are never submitted.</p>
+      <div class="toolbar">
+        <button id="start-camera" type="button">Start Camera</button>
+        <button id="stop-camera" type="button">Stop Camera</button>
+        <button id="reset-stats" type="button">Reset Stats</button>
+        <button id="fullscreen" type="button">Fullscreen</button>
+        <button id="flip-page" type="button">Flip Page</button>
+        <select id="camera-mode">
+          <option value="environment">Rear Camera</option>
+          <option value="user">Front Camera</option>
+        </select>
+        <select id="camera-device">
+          <option value="">Auto Camera</option>
+        </select>
+        <select id="camera-rotation">
+          <option value="0">Camera 0deg</option>
+          <option value="90">Camera 90deg</option>
+          <option value="180">Camera 180deg</option>
+          <option value="270">Camera 270deg</option>
+        </select>
+      </div>
+
+      <div class="grid" aria-live="polite">
+        <div class="metric"><span>Frames Processed</span><strong id="frames">0</strong></div>
+        <div class="metric"><span>Detector FPS</span><strong id="fps">0.0</strong></div>
+        <div class="metric"><span>Avg Detect Time</span><strong id="avg-ms">0.0 ms</strong></div>
+        <div class="metric"><span>Last Detect Time</span><strong id="last-ms">0.0 ms</strong></div>
+        <div class="metric"><span>Max Detect Time</span><strong id="max-ms">0.0 ms</strong></div>
+        <div class="metric"><span>Confirmed Markers</span><strong id="confirmed">0</strong></div>
+      </div>
+
+      <div class="meta-panel">
+        <h2>Camera Controls</h2>
+        <div id="camera-controls" class="control-list">Start camera to inspect supported settings.</div>
+      </div>
+
+      <p id="status" class="status"></p>
+
+      <div class="meta-panel">
+        <h2>Recent Local Detections</h2>
+        <table class="hits">
+          <thead>
+            <tr>
+              <th>Marker</th>
+              <th>Hits</th>
+              <th>Confirmed</th>
+              <th>Last Seen</th>
+            </tr>
+          </thead>
+          <tbody id="hits-body">
+            <tr><td colspan="4">No markers detected yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/cv.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/aruco.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/dictionaries/aruco_4x4_1000.js"></script>
+  <script>
+    let stream = null;
+    let detector = null;
+    let scanTimer = null;
+    let activeTrack = null;
+    let markerHits = {};
+    let markerStats = {};
+    let cameraDevices = [];
+    let stats = {
+      frames: 0,
+      confirmed: 0,
+      totalMs: 0,
+      lastMs: 0,
+      maxMs: 0,
+      startedAt: 0
+    };
+
+    const video = document.getElementById("camera");
+    const overlay = document.getElementById("overlay");
+    const overlayContext = overlay.getContext("2d");
+    const frameCanvas = document.createElement("canvas");
+    const frameContext = frameCanvas.getContext("2d", { willReadFrequently: true });
+
+    function setStatus(kind, text) {
+      document.getElementById("status").textContent = `${kind.toUpperCase()}: ${text}`;
+    }
+
+    function formatControlValue(value) {
+      if (typeof value === "number") {
+        return Number.isInteger(value) ? String(value) : value.toFixed(2);
+      }
+      return value == null ? "" : String(value);
+    }
+
+    function stepFromCapability(capability) {
+      if (typeof capability.step === "number" && capability.step > 0) {
+        return String(capability.step);
+      }
+      if (Math.abs(capability.max - capability.min) <= 10) {
+        return "0.1";
+      }
+      return "1";
+    }
+
+    async function applyCameraConstraint(name, value) {
+      if (!activeTrack) {
+        return;
+      }
+      try {
+        await activeTrack.applyConstraints({ advanced: [{ [name]: value }] });
+        renderCameraControls(activeTrack);
+        setStatus("ready", `${name} set to ${formatControlValue(value)}`);
+      } catch (error) {
+        setStatus("error", `${name} could not be applied`);
+        renderCameraControls(activeTrack);
+      }
+    }
+
+    function addRangeControl(container, name, capability, value) {
+      const item = document.createElement("div");
+      item.className = "control-item";
+      const startValue = value ?? capability.min;
+      item.innerHTML = `
+        <div class="control-head">
+          <span>${name}</span>
+          <span>${formatControlValue(startValue)}</span>
+        </div>
+        <input type="range" min="${capability.min}" max="${capability.max}" step="${stepFromCapability(capability)}" value="${startValue}">
+      `;
+      const valueNode = item.querySelector(".control-head span:last-child");
+      const input = item.querySelector("input");
+      input.addEventListener("input", () => {
+        valueNode.textContent = formatControlValue(Number(input.value));
+      });
+      input.addEventListener("change", () => {
+        applyCameraConstraint(name, Number(input.value));
+      });
+      container.appendChild(item);
+    }
+
+    function addSelectControl(container, name, options, value) {
+      const item = document.createElement("div");
+      item.className = "control-item";
+      item.innerHTML = `
+        <div class="control-head">
+          <span>${name}</span>
+          <span>${formatControlValue(value ?? options[0])}</span>
+        </div>
+        <select>
+          ${options.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${option}</option>`).join("")}
+        </select>
+      `;
+      const valueNode = item.querySelector(".control-head span:last-child");
+      const input = item.querySelector("select");
+      input.addEventListener("change", () => {
+        valueNode.textContent = input.value;
+        applyCameraConstraint(name, input.value);
+      });
+      container.appendChild(item);
+    }
+
+    function renderCameraControls(track) {
+      const container = document.getElementById("camera-controls");
+      container.innerHTML = "";
+      if (!track) {
+        container.textContent = "Start camera to inspect supported settings.";
+        return;
+      }
+
+      const allowed = new Set(["exposureCompensation", "exposureMode", "exposureTime", "iso"]);
+      const capabilities = typeof track.getCapabilities === "function" ? track.getCapabilities() : {};
+      const settings = typeof track.getSettings === "function" ? track.getSettings() : {};
+
+      for (const [name, capability] of Object.entries(capabilities)) {
+        if (!allowed.has(name)) {
+          continue;
+        }
+        const value = settings[name];
+        if (
+          capability &&
+          typeof capability === "object" &&
+          !Array.isArray(capability) &&
+          typeof capability.min === "number" &&
+          typeof capability.max === "number"
+        ) {
+          addRangeControl(container, name, capability, value);
+        } else if (Array.isArray(capability) && capability.length) {
+          addSelectControl(container, name, capability, value);
+        }
+      }
+
+      if (!container.childElementCount) {
+        container.textContent = "No exposure controls are exposed by this camera/browser.";
+      }
+    }
+
+    function cameraApiAvailable() {
+      return Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function pageHasCameraAccessChance() {
+      return window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    }
+
+    async function refreshCameraDevices() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return;
+      }
+
+      const selected = localStorage.getItem("scanner_test_camera_device") || "";
+      const select = document.getElementById("camera-device");
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      cameraDevices = devices.filter((device) => device.kind === "videoinput");
+      select.innerHTML = `<option value="">Auto Camera</option>`;
+      cameraDevices.forEach((device, index) => {
+        const option = document.createElement("option");
+        option.value = device.deviceId;
+        option.textContent = device.label || `Camera ${index + 1}`;
+        option.selected = device.deviceId === selected;
+        select.appendChild(option);
+      });
+    }
+
+    function setPageFlipped(flipped) {
+      document.body.classList.toggle("flip-page", flipped);
+      localStorage.setItem("scanner_test_flip_page", flipped ? "1" : "0");
+      document.getElementById("flip-page").textContent = flipped ? "Unflip Page" : "Flip Page";
+    }
+
+    function setCameraRotation(degrees) {
+      const normalized = String(degrees);
+      document.documentElement.style.setProperty("--camera-rotation", `${normalized}deg`);
+      document.getElementById("camera-rotation").value = normalized;
+      localStorage.setItem("scanner_test_camera_rotation", normalized);
+    }
+
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+          return;
+        }
+        await document.documentElement.requestFullscreen();
+      } catch (error) {
+        setStatus("error", "fullscreen is not supported by this browser");
+      }
+    }
+
+    function updateFullscreenButton() {
+      document.getElementById("fullscreen").textContent = document.fullscreenElement ? "Exit Fullscreen" : "Fullscreen";
+    }
+
+    function pruneMarkerHits(now) {
+      for (const [id, hits] of Object.entries(markerHits)) {
+        markerHits[id] = hits.filter((timestamp) => now - timestamp <= 1000);
+        if (!markerHits[id].length) {
+          delete markerHits[id];
+        }
+      }
+    }
+
+    function recordMarkerHit(id, now) {
+      const key = String(id);
+      const hits = markerHits[key] || [];
+      hits.push(now);
+      markerHits[key] = hits.filter((timestamp) => now - timestamp <= 1000);
+
+      if (!markerStats[key]) {
+        markerStats[key] = { hits: 0, confirmed: 0, lastSeen: 0 };
+      }
+      markerStats[key].hits += 1;
+      markerStats[key].lastSeen = now;
+      return markerHits[key].length;
+    }
+
+    function markerProgress(id) {
+      const hits = markerHits[String(id)] || [];
+      return Math.min(1, hits.length / 5);
+    }
+
+    function confirmMarker(id, now) {
+      const key = String(id);
+      if (!markerStats[key]) {
+        markerStats[key] = { hits: 0, confirmed: 0, lastSeen: now };
+      }
+      markerStats[key].confirmed += 1;
+      stats.confirmed += 1;
+      markerHits[key] = [];
+      setStatus("detected", `local marker ${id} confirmed`);
+    }
+
+    function updateStats() {
+      const elapsedSeconds = stats.startedAt ? (performance.now() - stats.startedAt) / 1000 : 0;
+      const fps = elapsedSeconds > 0 ? stats.frames / elapsedSeconds : 0;
+      const avgMs = stats.frames > 0 ? stats.totalMs / stats.frames : 0;
+
+      document.getElementById("frames").textContent = String(stats.frames);
+      document.getElementById("fps").textContent = fps.toFixed(1);
+      document.getElementById("avg-ms").textContent = `${avgMs.toFixed(1)} ms`;
+      document.getElementById("last-ms").textContent = `${stats.lastMs.toFixed(1)} ms`;
+      document.getElementById("max-ms").textContent = `${stats.maxMs.toFixed(1)} ms`;
+      document.getElementById("confirmed").textContent = String(stats.confirmed);
+
+      const body = document.getElementById("hits-body");
+      const rows = Object.entries(markerStats)
+        .sort((a, b) => b[1].lastSeen - a[1].lastSeen)
+        .slice(0, 12);
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="4">No markers detected yet.</td></tr>`;
+        return;
+      }
+      body.innerHTML = rows.map(([id, hit]) => `
+        <tr>
+          <td>${id}</td>
+          <td>${hit.hits}</td>
+          <td>${hit.confirmed}</td>
+          <td>${new Date(hit.lastSeen).toLocaleTimeString()}</td>
+        </tr>
+      `).join("");
+    }
+
+    function resetStats() {
+      markerHits = {};
+      markerStats = {};
+      stats = {
+        frames: 0,
+        confirmed: 0,
+        totalMs: 0,
+        lastMs: 0,
+        maxMs: 0,
+        startedAt: stream ? performance.now() : 0
+      };
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      updateStats();
+      setStatus(stream ? "ready" : "ready", stream ? "stats reset" : "tap Start Camera");
+    }
+
+    function drawMarkers(markers) {
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      overlayContext.lineWidth = 3;
+      overlayContext.strokeStyle = "#5efc8d";
+      overlayContext.font = "bold 28px Trebuchet MS";
+      overlayContext.textAlign = "center";
+      overlayContext.textBaseline = "middle";
+
+      markers.forEach((marker) => {
+        const corners = marker.corners;
+        if (!corners.length) {
+          return;
+        }
+        overlayContext.beginPath();
+        overlayContext.moveTo(corners[0].x, corners[0].y);
+        for (let i = 1; i < corners.length; i += 1) {
+          overlayContext.lineTo(corners[i].x, corners[i].y);
+        }
+        overlayContext.closePath();
+        overlayContext.stroke();
+
+        const centerX = corners.reduce((sum, corner) => sum + corner.x, 0) / corners.length;
+        const centerY = corners.reduce((sum, corner) => sum + corner.y, 0) / corners.length;
+        const label = String(marker.id);
+        const metrics = overlayContext.measureText(label);
+        const paddingX = 12;
+        const paddingY = 8;
+        const boxWidth = metrics.width + paddingX * 2;
+        const boxHeight = 36 + paddingY * 2;
+        const progress = markerProgress(marker.id);
+
+        overlayContext.fillStyle = "rgba(9, 17, 22, 0.72)";
+        overlayContext.fillRect(centerX - boxWidth / 2, centerY - boxHeight / 2, boxWidth, boxHeight);
+        overlayContext.fillStyle = "rgba(94, 252, 141, 0.72)";
+        overlayContext.fillRect(centerX - boxWidth / 2, centerY - boxHeight / 2, boxWidth * progress, boxHeight);
+
+        overlayContext.fillStyle = progress >= 1 ? "#091116" : "#5efc8d";
+        overlayContext.fillText(label, centerX, centerY + 1);
+      });
+    }
+
+    function scanFrame() {
+      if (!video.videoWidth || !video.videoHeight || !detector) {
+        return;
+      }
+
+      if (frameCanvas.width !== video.videoWidth || frameCanvas.height !== video.videoHeight) {
+        frameCanvas.width = video.videoWidth;
+        frameCanvas.height = video.videoHeight;
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+      }
+
+      frameContext.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+      const imageData = frameContext.getImageData(0, 0, frameCanvas.width, frameCanvas.height);
+      const started = performance.now();
+      const markers = detector.detect(imageData);
+      const detectMs = performance.now() - started;
+      const now = Date.now();
+
+      stats.frames += 1;
+      stats.totalMs += detectMs;
+      stats.lastMs = detectMs;
+      stats.maxMs = Math.max(stats.maxMs, detectMs);
+      pruneMarkerHits(now);
+
+      markers.forEach((marker) => {
+        const hitCount = recordMarkerHit(marker.id, now);
+        if (hitCount >= 5) {
+          confirmMarker(marker.id, now);
+        }
+      });
+      drawMarkers(markers);
+      updateStats();
+    }
+
+    async function startCamera() {
+      await stopCamera();
+      if (!cameraApiAvailable()) {
+        setStatus("error", "camera API is not available in this browser");
+        return;
+      }
+      if (!pageHasCameraAccessChance()) {
+        setStatus("error", "camera access requires HTTPS on phones.\nOpen this page over HTTPS or from localhost.");
+        return;
+      }
+
+      const facingMode = document.getElementById("camera-mode").value;
+      const selectedDeviceId = document.getElementById("camera-device").value;
+      const preferredVideo = selectedDeviceId
+        ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } };
+      const attempts = [
+        { video: preferredVideo, audio: false },
+        { video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+        { video: true, audio: false }
+      ];
+
+      try {
+        let lastError = null;
+        for (const constraints of attempts) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            break;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        if (!stream) {
+          throw lastError || new Error("camera access failed");
+        }
+
+        video.srcObject = stream;
+        activeTrack = stream.getVideoTracks()[0] || null;
+        renderCameraControls(activeTrack);
+        await refreshCameraDevices();
+        await video.play();
+        if (!detector) {
+          detector = new AR.Detector({ dictionaryName: "ARUCO_4X4_1000" });
+        }
+        stats.startedAt = performance.now();
+        scanTimer = window.setInterval(scanFrame, 150);
+        setStatus("ready", `${facingMode === "user" ? "front" : "rear"} camera started`);
+      } catch (error) {
+        const message = error && error.name ? `${error.name}: ${error.message || "camera access failed"}` : "camera access failed";
+        setStatus("error", message);
+      }
+    }
+
+    async function stopCamera() {
+      if (scanTimer) {
+        clearInterval(scanTimer);
+        scanTimer = null;
+      }
+      markerHits = {};
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+        stream = null;
+      }
+      activeTrack = null;
+      renderCameraControls(null);
+      video.srcObject = null;
+    }
+
+    setPageFlipped(localStorage.getItem("scanner_test_flip_page") === "1");
+    setCameraRotation(localStorage.getItem("scanner_test_camera_rotation") || "0");
+    refreshCameraDevices();
+    updateStats();
+    document.getElementById("start-camera").addEventListener("click", startCamera);
+    document.getElementById("stop-camera").addEventListener("click", stopCamera);
+    document.getElementById("reset-stats").addEventListener("click", resetStats);
+    document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+    document.addEventListener("fullscreenchange", updateFullscreenButton);
+    document.getElementById("flip-page").addEventListener("click", () => {
+      setPageFlipped(!document.body.classList.contains("flip-page"));
+    });
+    document.getElementById("camera-rotation").addEventListener("change", (event) => {
+      setCameraRotation(event.target.value);
+    });
+    document.getElementById("camera-mode").addEventListener("change", () => {
+      if (stream) {
+        startCamera();
+      }
+    });
+    document.getElementById("camera-device").addEventListener("change", (event) => {
+      localStorage.setItem("scanner_test_camera_device", event.target.value);
+      if (stream) {
+        startCamera();
+      }
+    });
+
+    if (!pageHasCameraAccessChance()) {
+      setStatus("error", "camera access on phones usually needs HTTPS. Tap Start Camera after opening this page over HTTPS.");
+    } else {
+      setStatus("ready", "tap Start Camera");
+    }
+  </script>
+</body>
+</html>

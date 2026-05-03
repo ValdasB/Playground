@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#101820">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="AprilTag Test">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>AprilTag Camera Test</title>
+  <style>
+    :root {
+      --bg: #101820;
+      --panel: #182631;
+      --panel-2: #213543;
+      --ink: #f8f4e8;
+      --muted: #c9d2cf;
+      --accent: #e78a35;
+      --good: #66f2a5;
+      --warn: #ffd166;
+      --bad: #ff6b6b;
+      --border: #3d5564;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: minmax(280px, 62dvh) auto;
+      background: linear-gradient(180deg, #0c1319 0, var(--bg) 100%);
+    }
+
+    .stage {
+      position: relative;
+      overflow: hidden;
+      background: #05080a;
+    }
+
+    video,
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .hud {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      pointer-events: none;
+    }
+
+    .pill {
+      min-width: 88px;
+      padding: 7px 9px;
+      border: 1px solid rgba(248, 244, 232, 0.18);
+      border-radius: 8px;
+      background: rgba(5, 8, 10, 0.74);
+      color: var(--ink);
+      font-size: 0.85rem;
+      line-height: 1.15;
+      backdrop-filter: blur(6px);
+    }
+
+    .pill span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .pill strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 1rem;
+    }
+
+    .controls {
+      border-top: 1px solid var(--border);
+      background: var(--panel);
+      padding: 14px 14px 24px;
+    }
+
+    .head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .status {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-align: right;
+    }
+
+    button,
+    select,
+    input {
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font: inherit;
+    }
+
+    button {
+      padding: 7px 11px;
+      border-color: transparent;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      border-color: var(--border);
+      background: var(--panel-2);
+      color: var(--ink);
+    }
+
+    select,
+    input {
+      width: 100%;
+      padding: 7px 9px;
+      background: #f7f1e4;
+      color: #15191b;
+    }
+
+    input[type="range"] {
+      padding: 0;
+      accent-color: var(--accent);
+    }
+
+    input[type="checkbox"] {
+      width: auto;
+      min-height: 0;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    label,
+    .control-label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .metric,
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(5, 8, 10, 0.28);
+      padding: 10px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 1.12rem;
+    }
+
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+
+    .camera-controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 10px;
+      color: var(--muted);
+    }
+
+    .range-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--border);
+      padding: 7px 5px;
+      text-align: left;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    @media (max-width: 620px) {
+      .app {
+        grid-template-rows: minmax(260px, 58dvh) auto;
+      }
+
+      .head {
+        display: grid;
+      }
+
+      .status {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="stage" aria-label="Camera preview">
+      <video id="camera" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="hud" aria-live="polite">
+        <div class="pill"><span>Detector FPS</span><strong id="hud-detector-fps">0.0</strong></div>
+        <div class="pill"><span>Preview FPS</span><strong id="hud-preview-fps">0.0</strong></div>
+        <div class="pill"><span>Tags</span><strong id="hud-tags">0</strong></div>
+      </div>
+    </section>
+
+    <section class="controls">
+      <div class="head">
+        <h1>AprilTag Camera Test</h1>
+        <div id="status" class="status">Loading detector...</div>
+      </div>
+
+      <div class="toolbar">
+        <button id="start-camera" type="button">Start Camera</button>
+        <button id="stop-camera" class="secondary" type="button">Stop Camera</button>
+        <button id="refresh-cameras" class="secondary" type="button">Refresh Cameras</button>
+        <button id="reset-stats" class="secondary" type="button">Reset Stats</button>
+        <button id="fullscreen" class="secondary" type="button">Fullscreen</button>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Camera
+          <select id="camera-device">
+            <option value="">Auto rear camera</option>
+          </select>
+        </label>
+        <label>
+          Facing
+          <select id="facing-mode">
+            <option value="environment">Rear</option>
+            <option value="user">Front</option>
+          </select>
+        </label>
+        <label>
+          Requested Resolution
+          <select id="resolution">
+            <option value="1920x1080">1920 x 1080</option>
+            <option value="1280x720" selected>1280 x 720</option>
+            <option value="960x540">960 x 540</option>
+            <option value="640x480">640 x 480</option>
+          </select>
+        </label>
+        <label>
+          Detection Width
+          <select id="scan-width">
+            <option value="640">640 px</option>
+            <option value="960" selected>960 px</option>
+            <option value="1280">1280 px</option>
+            <option value="source">Source</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="metrics" aria-live="polite">
+        <div class="metric"><span>Frames Scanned</span><strong id="frames">0</strong></div>
+        <div class="metric"><span>Detector FPS</span><strong id="detector-fps">0.0</strong></div>
+        <div class="metric"><span>Preview FPS</span><strong id="preview-fps">0.0</strong></div>
+        <div class="metric"><span>Last Detect</span><strong id="last-ms">0.0 ms</strong></div>
+        <div class="metric"><span>Avg Detect</span><strong id="avg-ms">0.0 ms</strong></div>
+        <div class="metric"><span>Video Size</span><strong id="video-size">0 x 0</strong></div>
+      </div>
+
+      <div class="panel">
+        <h2>Camera Controls</h2>
+        <div id="camera-controls" class="camera-controls">Start camera to inspect browser-exposed lens controls.</div>
+      </div>
+
+      <div class="panel" style="margin-top: 12px;">
+        <h2>Recent Tags</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Hits</th>
+              <th>Last Seen</th>
+            </tr>
+          </thead>
+          <tbody id="tags-body">
+            <tr><td colspan="3">No tags detected yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const APRILTAG_WASM_JS = "https://cdn.jsdelivr.net/gh/arenaxr/apriltag-js-standalone@master/html/apriltag_wasm.js";
+    const APRILTAG_WASM_FILE = "https://cdn.jsdelivr.net/gh/arenaxr/apriltag-js-standalone@master/html/apriltag_wasm.wasm";
+
+    const workerSource = `
+      const APRILTAG_WASM_JS = ${JSON.stringify(APRILTAG_WASM_JS)};
+      const APRILTAG_WASM_FILE = ${JSON.stringify(APRILTAG_WASM_FILE)};
+      let detector = null;
+
+      importScripts(APRILTAG_WASM_JS);
+
+      class AprilTagDetector {
+        async init() {
+          this.module = await AprilTagWasm({
+            locateFile(path) {
+              return path.endsWith(".wasm") ? APRILTAG_WASM_FILE : path;
+            }
+          });
+          this.initDetector = this.module.cwrap("atagjs_init", "number", []);
+          this.setDetectorOptions = this.module.cwrap("atagjs_set_detector_options", "number", ["number", "number", "number", "number", "number", "number", "number"]);
+          this.setImageBuffer = this.module.cwrap("atagjs_set_img_buffer", "number", ["number", "number", "number"]);
+          this.detectTags = this.module.cwrap("atagjs_detect", "number", []);
+          this.initDetector();
+          this.setDetectorOptions(2.0, 0.0, 1, 1, 0, 0, 0);
+        }
+
+        detect(grayscale, width, height) {
+          const imgBuffer = this.setImageBuffer(width, height, width);
+          this.module.HEAPU8.set(grayscale, imgBuffer);
+          const strJsonPtr = this.detectTags();
+          const strJsonLen = this.module.getValue(strJsonPtr, "i32");
+          if (!strJsonLen) {
+            return [];
+          }
+          const strJsonStrPtr = this.module.getValue(strJsonPtr + 4, "i32");
+          const view = new Uint8Array(this.module.HEAP8.buffer, strJsonStrPtr, strJsonLen);
+          let json = "";
+          for (let i = 0; i < strJsonLen; i += 1) {
+            json += String.fromCharCode(view[i]);
+          }
+          return JSON.parse(json);
+        }
+      }
+
+      AprilTagDetector.create = async function create() {
+        const instance = new AprilTagDetector();
+        await instance.init();
+        return instance;
+      };
+
+      AprilTagDetector.create()
+        .then((instance) => {
+          detector = instance;
+          postMessage({ type: "ready" });
+        })
+        .catch((error) => {
+          postMessage({ type: "error", message: error && error.message ? error.message : String(error) });
+        });
+
+      onmessage = (event) => {
+        if (!detector || event.data.type !== "detect") {
+          return;
+        }
+
+        const started = performance.now();
+        try {
+          const detections = detector.detect(new Uint8Array(event.data.buffer), event.data.width, event.data.height);
+          postMessage({
+            type: "result",
+            detections,
+            width: event.data.width,
+            height: event.data.height,
+            elapsedMs: performance.now() - started
+          });
+        } catch (error) {
+          postMessage({ type: "error", message: error && error.message ? error.message : String(error) });
+        }
+      };
+    `;
+
+    const video = document.getElementById("camera");
+    const overlay = document.getElementById("overlay");
+    const overlayContext = overlay.getContext("2d");
+    const scanCanvas = document.createElement("canvas");
+    const scanContext = scanCanvas.getContext("2d", { willReadFrequently: true });
+    const statusNode = document.getElementById("status");
+    const cameraDeviceSelect = document.getElementById("camera-device");
+    const cameraControls = document.getElementById("camera-controls");
+    const tagColor = getComputedStyle(document.documentElement).getPropertyValue("--good").trim() || "#66f2a5";
+
+    let detectorWorker = null;
+    let detectorReady = false;
+    let stream = null;
+    let activeTrack = null;
+    let animationFrame = 0;
+    let detectionPending = false;
+    let lastDetections = [];
+    let lastDetectionSize = { width: 1, height: 1 };
+    let cameraDevices = [];
+    let stats = initialStats();
+    let tagStats = {};
+
+    function initialStats() {
+      return {
+        scanned: 0,
+        totalDetectMs: 0,
+        lastDetectMs: 0,
+        detectorStartedAt: 0,
+        previewFrames: 0,
+        previewStartedAt: 0,
+        lastMetricAt: 0
+      };
+    }
+
+    function setStatus(text, kind = "ready") {
+      statusNode.textContent = text;
+      statusNode.style.color = kind === "error" ? "var(--bad)" : kind === "warn" ? "var(--warn)" : "var(--muted)";
+    }
+
+    function cameraApiAvailable() {
+      return Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function pageHasCameraAccessChance() {
+      return window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    }
+
+    function parseResolution() {
+      const [width, height] = document.getElementById("resolution").value.split("x").map(Number);
+      return { width, height };
+    }
+
+    function desiredScanSize() {
+      const sourceWidth = video.videoWidth || 1;
+      const sourceHeight = video.videoHeight || 1;
+      const setting = document.getElementById("scan-width").value;
+      if (setting === "source") {
+        return { width: sourceWidth, height: sourceHeight };
+      }
+      const width = Math.min(Number(setting), sourceWidth);
+      const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth));
+      return { width, height };
+    }
+
+    function createDetectorWorker() {
+      if (detectorWorker) {
+        detectorWorker.terminate();
+      }
+
+      detectorReady = false;
+      const blob = new Blob([workerSource], { type: "application/javascript" });
+      detectorWorker = new Worker(URL.createObjectURL(blob));
+      detectorWorker.onmessage = (event) => {
+        if (event.data.type === "ready") {
+          detectorReady = true;
+          setStatus(pageHasCameraAccessChance() ? "Detector ready. Tap Start Camera." : "HTTPS is required for phone camera access.", pageHasCameraAccessChance() ? "ready" : "warn");
+          return;
+        }
+
+        if (event.data.type === "error") {
+          detectionPending = false;
+          setStatus(event.data.message || "Detector error", "error");
+          return;
+        }
+
+        if (event.data.type === "result") {
+          detectionPending = false;
+          lastDetections = event.data.detections || [];
+          lastDetectionSize = { width: event.data.width, height: event.data.height };
+          stats.scanned += 1;
+          stats.totalDetectMs += event.data.elapsedMs;
+          stats.lastDetectMs = event.data.elapsedMs;
+          recordTags(lastDetections);
+          drawOverlay();
+          updateMetrics();
+        }
+      };
+    }
+
+    async function refreshCameraDevices() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return;
+      }
+
+      const selected = localStorage.getItem("apriltag_test_camera_device") || "";
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      cameraDevices = devices.filter((device) => device.kind === "videoinput");
+      cameraDeviceSelect.innerHTML = `<option value="">Auto rear camera</option>`;
+      cameraDevices.forEach((device, index) => {
+        const option = document.createElement("option");
+        option.value = device.deviceId;
+        option.textContent = device.label || `Camera ${index + 1}`;
+        option.selected = device.deviceId === selected;
+        cameraDeviceSelect.appendChild(option);
+      });
+    }
+
+    function stopLoop() {
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = 0;
+      }
+      detectionPending = false;
+    }
+
+    async function stopCamera() {
+      stopLoop();
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      stream = null;
+      activeTrack = null;
+      video.srcObject = null;
+      lastDetections = [];
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      renderCameraControls(null);
+      updateMetrics();
+    }
+
+    async function startCamera() {
+      await stopCamera();
+      if (!cameraApiAvailable()) {
+        setStatus("Camera API is not available in this browser.", "error");
+        return;
+      }
+      if (!pageHasCameraAccessChance()) {
+        setStatus("Open this GitHub Pages URL over HTTPS before using the camera.", "error");
+        return;
+      }
+      if (!detectorReady) {
+        setStatus("Detector is still loading.", "warn");
+        return;
+      }
+
+      const selectedDeviceId = cameraDeviceSelect.value;
+      const facingMode = document.getElementById("facing-mode").value;
+      const resolution = parseResolution();
+      const preferredVideo = selectedDeviceId
+        ? { deviceId: { exact: selectedDeviceId }, width: { ideal: resolution.width }, height: { ideal: resolution.height } }
+        : { facingMode: { ideal: facingMode }, width: { ideal: resolution.width }, height: { ideal: resolution.height } };
+      const attempts = [
+        { video: preferredVideo, audio: false },
+        { video: { facingMode, width: { ideal: resolution.width }, height: { ideal: resolution.height } }, audio: false },
+        { video: true, audio: false }
+      ];
+
+      try {
+        let lastError = null;
+        for (const constraints of attempts) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            break;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        if (!stream) {
+          throw lastError || new Error("camera access failed");
+        }
+
+        video.srcObject = stream;
+        activeTrack = stream.getVideoTracks()[0] || null;
+        await video.play();
+        await refreshCameraDevices();
+        renderCameraControls(activeTrack);
+        resetStats(false);
+        stats.detectorStartedAt = performance.now();
+        stats.previewStartedAt = performance.now();
+        setStatus(activeTrack && activeTrack.label ? activeTrack.label : "Camera started.");
+        animationFrame = requestAnimationFrame(scanLoop);
+      } catch (error) {
+        setStatus(error && error.name ? `${error.name}: ${error.message || "camera access failed"}` : "camera access failed", "error");
+      }
+    }
+
+    function scanLoop() {
+      animationFrame = requestAnimationFrame(scanLoop);
+      stats.previewFrames += 1;
+
+      if (!video.videoWidth || !video.videoHeight) {
+        return;
+      }
+
+      if (overlay.width !== video.videoWidth || overlay.height !== video.videoHeight) {
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+      }
+
+      if (!detectionPending && detectorReady) {
+        const size = desiredScanSize();
+        if (scanCanvas.width !== size.width || scanCanvas.height !== size.height) {
+          scanCanvas.width = size.width;
+          scanCanvas.height = size.height;
+        }
+
+        scanContext.drawImage(video, 0, 0, size.width, size.height);
+        const rgba = scanContext.getImageData(0, 0, size.width, size.height).data;
+        const grayscale = new Uint8Array(size.width * size.height);
+        for (let i = 0, j = 0; i < rgba.length; i += 4, j += 1) {
+          grayscale[j] = Math.round((rgba[i] + rgba[i + 1] + rgba[i + 2]) / 3);
+        }
+
+        detectionPending = true;
+        detectorWorker.postMessage({ type: "detect", buffer: grayscale.buffer, width: size.width, height: size.height }, [grayscale.buffer]);
+      }
+
+      const now = performance.now();
+      if (now - stats.lastMetricAt > 250) {
+        drawOverlay();
+        updateMetrics();
+      }
+    }
+
+    function drawOverlay() {
+      if (!overlay.width || !overlay.height) {
+        return;
+      }
+
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      const scaleX = overlay.width / lastDetectionSize.width;
+      const scaleY = overlay.height / lastDetectionSize.height;
+
+      overlayContext.lineWidth = Math.max(3, overlay.width / 360);
+      overlayContext.strokeStyle = tagColor;
+      overlayContext.font = `700 ${Math.max(24, Math.round(overlay.width / 28))}px Trebuchet MS`;
+      overlayContext.textAlign = "center";
+      overlayContext.textBaseline = "middle";
+
+      lastDetections.forEach((tag) => {
+        const corners = tag.corners || [];
+        if (corners.length < 4) {
+          return;
+        }
+
+        overlayContext.beginPath();
+        overlayContext.moveTo(corners[0].x * scaleX, corners[0].y * scaleY);
+        for (let i = 1; i < corners.length; i += 1) {
+          overlayContext.lineTo(corners[i].x * scaleX, corners[i].y * scaleY);
+        }
+        overlayContext.closePath();
+        overlayContext.stroke();
+
+        const centerX = (tag.center ? tag.center.x : corners.reduce((sum, point) => sum + point.x, 0) / corners.length) * scaleX;
+        const centerY = (tag.center ? tag.center.y : corners.reduce((sum, point) => sum + point.y, 0) / corners.length) * scaleY;
+        const label = `ID ${tag.id}`;
+        const metrics = overlayContext.measureText(label);
+        const paddingX = 12;
+        const boxWidth = metrics.width + paddingX * 2;
+        const boxHeight = Math.max(42, overlay.width / 16);
+        overlayContext.fillStyle = "rgba(5, 8, 10, 0.76)";
+        overlayContext.fillRect(centerX - boxWidth / 2, centerY - boxHeight / 2, boxWidth, boxHeight);
+        overlayContext.fillStyle = tagColor;
+        overlayContext.fillText(label, centerX, centerY + 1);
+      });
+    }
+
+    function recordTags(detections) {
+      const now = Date.now();
+      detections.forEach((tag) => {
+        const id = String(tag.id);
+        if (!tagStats[id]) {
+          tagStats[id] = { hits: 0, lastSeen: now };
+        }
+        tagStats[id].hits += 1;
+        tagStats[id].lastSeen = now;
+      });
+      renderTagTable();
+    }
+
+    function renderTagTable() {
+      const body = document.getElementById("tags-body");
+      const rows = Object.entries(tagStats)
+        .sort((a, b) => b[1].lastSeen - a[1].lastSeen)
+        .slice(0, 12);
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="3">No tags detected yet.</td></tr>`;
+        return;
+      }
+      body.innerHTML = rows.map(([id, hit]) => `
+        <tr>
+          <td>${id}</td>
+          <td>${hit.hits}</td>
+          <td>${new Date(hit.lastSeen).toLocaleTimeString()}</td>
+        </tr>
+      `).join("");
+    }
+
+    function updateMetrics() {
+      const now = performance.now();
+      stats.lastMetricAt = now;
+      const detectorSeconds = stats.detectorStartedAt ? (now - stats.detectorStartedAt) / 1000 : 0;
+      const previewSeconds = stats.previewStartedAt ? (now - stats.previewStartedAt) / 1000 : 0;
+      const detectorFps = detectorSeconds > 0 ? stats.scanned / detectorSeconds : 0;
+      const previewFps = previewSeconds > 0 ? stats.previewFrames / previewSeconds : 0;
+      const avgMs = stats.scanned > 0 ? stats.totalDetectMs / stats.scanned : 0;
+
+      document.getElementById("frames").textContent = String(stats.scanned);
+      document.getElementById("detector-fps").textContent = detectorFps.toFixed(1);
+      document.getElementById("preview-fps").textContent = previewFps.toFixed(1);
+      document.getElementById("last-ms").textContent = `${stats.lastDetectMs.toFixed(1)} ms`;
+      document.getElementById("avg-ms").textContent = `${avgMs.toFixed(1)} ms`;
+      document.getElementById("video-size").textContent = `${video.videoWidth || 0} x ${video.videoHeight || 0}`;
+      document.getElementById("hud-detector-fps").textContent = detectorFps.toFixed(1);
+      document.getElementById("hud-preview-fps").textContent = previewFps.toFixed(1);
+      document.getElementById("hud-tags").textContent = String(lastDetections.length);
+    }
+
+    function resetStats(showStatus = true) {
+      stats = initialStats();
+      stats.detectorStartedAt = stream ? performance.now() : 0;
+      stats.previewStartedAt = stream ? performance.now() : 0;
+      tagStats = {};
+      lastDetections = [];
+      renderTagTable();
+      updateMetrics();
+      if (showStatus) {
+        setStatus(stream ? "Stats reset." : "Stats reset. Tap Start Camera.");
+      }
+    }
+
+    function formatValue(value) {
+      if (typeof value === "number") {
+        return Number.isInteger(value) ? String(value) : value.toFixed(2);
+      }
+      return value == null ? "" : String(value);
+    }
+
+    function rangeStep(capability) {
+      if (typeof capability.step === "number" && capability.step > 0) {
+        return String(capability.step);
+      }
+      if (Math.abs(capability.max - capability.min) <= 10) {
+        return "0.1";
+      }
+      return "1";
+    }
+
+    async function applyCameraConstraint(name, value) {
+      if (!activeTrack) {
+        return;
+      }
+      try {
+        await activeTrack.applyConstraints({ advanced: [{ [name]: value }] });
+        renderCameraControls(activeTrack);
+        setStatus(`${name} set to ${formatValue(value)}.`);
+      } catch (error) {
+        setStatus(`${name} could not be applied.`, "error");
+      }
+    }
+
+    function addRangeControl(container, name, capability, value) {
+      const item = document.createElement("div");
+      item.className = "control-label";
+      const startValue = value ?? capability.min;
+      item.innerHTML = `
+        <div class="range-head">
+          <span>${name}</span>
+          <span>${formatValue(startValue)}</span>
+        </div>
+        <input type="range" min="${capability.min}" max="${capability.max}" step="${rangeStep(capability)}" value="${startValue}">
+      `;
+      const valueNode = item.querySelector(".range-head span:last-child");
+      const input = item.querySelector("input");
+      input.addEventListener("input", () => {
+        valueNode.textContent = formatValue(Number(input.value));
+      });
+      input.addEventListener("change", () => {
+        applyCameraConstraint(name, Number(input.value));
+      });
+      container.appendChild(item);
+    }
+
+    function addSelectControl(container, name, options, value) {
+      const item = document.createElement("label");
+      item.textContent = name;
+      const select = document.createElement("select");
+      options.forEach((optionValue) => {
+        const option = document.createElement("option");
+        option.value = optionValue;
+        option.textContent = optionValue;
+        option.selected = optionValue === value;
+        select.appendChild(option);
+      });
+      select.addEventListener("change", () => applyCameraConstraint(name, select.value));
+      item.appendChild(select);
+      container.appendChild(item);
+    }
+
+    function addCheckboxControl(container, name, value) {
+      const item = document.createElement("label");
+      item.style.display = "flex";
+      item.style.alignItems = "center";
+      item.style.gap = "8px";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = Boolean(value);
+      input.addEventListener("change", () => applyCameraConstraint(name, input.checked));
+      item.appendChild(input);
+      item.appendChild(document.createTextNode(name));
+      container.appendChild(item);
+    }
+
+    function renderCameraControls(track) {
+      cameraControls.innerHTML = "";
+      if (!track) {
+        cameraControls.textContent = "Start camera to inspect browser-exposed lens controls.";
+        return;
+      }
+
+      const usefulControls = new Set([
+        "zoom",
+        "focusDistance",
+        "focusMode",
+        "torch",
+        "exposureCompensation",
+        "exposureMode",
+        "exposureTime",
+        "iso",
+        "whiteBalanceMode",
+        "colorTemperature"
+      ]);
+      const capabilities = typeof track.getCapabilities === "function" ? track.getCapabilities() : {};
+      const settings = typeof track.getSettings === "function" ? track.getSettings() : {};
+
+      for (const [name, capability] of Object.entries(capabilities)) {
+        if (!usefulControls.has(name)) {
+          continue;
+        }
+        const value = settings[name];
+        if (
+          capability &&
+          typeof capability === "object" &&
+          !Array.isArray(capability) &&
+          typeof capability.min === "number" &&
+          typeof capability.max === "number"
+        ) {
+          addRangeControl(cameraControls, name, capability, value);
+        } else if (Array.isArray(capability) && capability.length) {
+          addSelectControl(cameraControls, name, capability, value);
+        } else if (typeof capability === "boolean") {
+          addCheckboxControl(cameraControls, name, value);
+        }
+      }
+
+      const settingsText = document.createElement("div");
+      settingsText.className = "control-label";
+      settingsText.textContent = `Active: ${settings.width || 0} x ${settings.height || 0}${settings.frameRate ? ` at ${Math.round(settings.frameRate)} fps` : ""}`;
+      cameraControls.appendChild(settingsText);
+
+      if (cameraControls.childElementCount === 1) {
+        const empty = document.createElement("div");
+        empty.textContent = "No zoom, focus, torch, or exposure controls were exposed by this browser for this camera.";
+        cameraControls.insertBefore(empty, settingsText);
+      }
+    }
+
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (error) {
+        setStatus("Fullscreen is not supported by this browser.", "error");
+      }
+    }
+
+    function updateFullscreenButton() {
+      document.getElementById("fullscreen").textContent = document.fullscreenElement ? "Exit Fullscreen" : "Fullscreen";
+    }
+
+    createDetectorWorker();
+    refreshCameraDevices();
+    updateMetrics();
+
+    document.getElementById("start-camera").addEventListener("click", startCamera);
+    document.getElementById("stop-camera").addEventListener("click", () => {
+      stopCamera();
+      setStatus("Camera stopped.");
+    });
+    document.getElementById("refresh-cameras").addEventListener("click", async () => {
+      await refreshCameraDevices();
+      setStatus("Camera list refreshed.");
+    });
+    document.getElementById("reset-stats").addEventListener("click", () => resetStats(true));
+    document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+    document.addEventListener("fullscreenchange", updateFullscreenButton);
+    cameraDeviceSelect.addEventListener("change", (event) => {
+      localStorage.setItem("apriltag_test_camera_device", event.target.value);
+      if (stream) {
+        startCamera();
+      }
+    });
+    document.getElementById("facing-mode").addEventListener("change", () => {
+      if (stream) {
+        startCamera();
+      }
+    });
+    document.getElementById("resolution").addEventListener("change", () => {
+      if (stream) {
+        startCamera();
+      }
+    });
+    document.getElementById("scan-width").addEventListener("change", () => {
+      resetStats(false);
+      setStatus("Detection size changed.");
+    });
+
+    if (!pageHasCameraAccessChance()) {
+      setStatus("Phone camera access requires HTTPS. Use the GitHub Pages URL.", "warn");
+    }
+  </script>
+</body>
+</html>

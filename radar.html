@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b1115">
+  <title>Lithuania Radar</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIINfQPDLaB8tZ4BIfxYfCOz1M+F3N7pG+0="
+    crossorigin=""
+  >
+  <style>
+    * { box-sizing: border-box; }
+
+    html,
+    body,
+    #map {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      overflow: hidden;
+      background: #0b1115;
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      color: #f7f4eb;
+    }
+
+    .leaflet-container {
+      position: relative;
+      overflow: hidden;
+      outline-offset: 1px;
+      background: #0b1115;
+      font: inherit;
+    }
+
+    .leaflet-pane,
+    .leaflet-tile,
+    .leaflet-marker-icon,
+    .leaflet-marker-shadow,
+    .leaflet-tile-container,
+    .leaflet-pane > svg,
+    .leaflet-pane > canvas,
+    .leaflet-zoom-box,
+    .leaflet-image-layer,
+    .leaflet-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+
+    .leaflet-tile,
+    .leaflet-marker-icon,
+    .leaflet-marker-shadow {
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .leaflet-tile {
+      width: 256px;
+      height: 256px;
+      filter: saturate(0.9) contrast(0.94);
+    }
+
+    .leaflet-tile-container,
+    .leaflet-overlay-pane svg {
+      transform-origin: 0 0;
+    }
+
+    .leaflet-control {
+      position: relative;
+      z-index: 800;
+      pointer-events: auto;
+    }
+
+    .leaflet-top,
+    .leaflet-bottom {
+      position: absolute;
+      z-index: 1000;
+      pointer-events: none;
+    }
+
+    .leaflet-top {
+      top: 0;
+    }
+
+    .leaflet-right {
+      right: 0;
+    }
+
+    .leaflet-bottom {
+      bottom: 0;
+    }
+
+    .leaflet-left {
+      left: 0;
+    }
+
+    .leaflet-control {
+      float: left;
+      clear: both;
+    }
+
+    .leaflet-right .leaflet-control {
+      float: right;
+    }
+
+    .leaflet-top .leaflet-control {
+      margin-top: 10px;
+    }
+
+    .leaflet-bottom .leaflet-control {
+      margin-bottom: 10px;
+    }
+
+    .leaflet-left .leaflet-control {
+      margin-left: 10px;
+    }
+
+    .leaflet-right .leaflet-control {
+      margin-right: 10px;
+    }
+
+    .leaflet-control-attribution {
+      background: rgba(8, 14, 18, 0.68);
+      color: #e9e2d3;
+    }
+
+    .leaflet-control-attribution a {
+      color: #c9e5ff;
+    }
+
+    .hud {
+      position: fixed;
+      z-index: 500;
+      right: 12px;
+      bottom: 46px;
+      display: grid;
+      gap: 4px;
+      min-width: 176px;
+      padding: 9px 11px;
+      border: 1px solid rgba(247, 244, 235, 0.2);
+      border-radius: 8px;
+      background: rgba(8, 14, 18, 0.78);
+      color: #f7f4eb;
+      text-align: right;
+      box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+    }
+
+    .clock {
+      font-size: 1.28rem;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
+    }
+
+    .frame-time,
+    .status {
+      color: #d8e1dd;
+      font-size: 0.8rem;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .status {
+      color: #f4c77f;
+    }
+
+    .leaflet-image-layer.radar-frame {
+      mix-blend-mode: normal;
+      pointer-events: none;
+      z-index: 400;
+    }
+
+    @media (max-width: 640px) {
+      .leaflet-control-zoom {
+        display: none;
+      }
+
+      .leaflet-control-attribution {
+        display: none;
+      }
+
+      .hud {
+        right: 8px;
+        bottom: 36px;
+        min-width: 148px;
+        padding: 8px 9px;
+      }
+
+      .clock {
+        font-size: 1.06rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map" aria-label="Lithuania weather radar map"></div>
+  <div class="hud" aria-live="polite">
+    <div class="clock" id="clock">--:--:--</div>
+    <div class="frame-time" id="frameTime">Loading radar</div>
+    <div class="status" id="status">Fetching frames</div>
+  </div>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script>
+    const RADAR_BASE_URL = "https://www.meteo.lt/meteo_jobs/radaru_informacija/Header_Radar-composite-";
+    const FRAME_INTERVAL_MS = 5 * 60 * 1000;
+    const HISTORY_MS = 2 * 60 * 60 * 1000;
+    const FRAME_COUNT = Math.floor(HISTORY_MS / FRAME_INTERVAL_MS) + 1;
+    const ANIMATION_MS = 2000;
+    const FREEZE_MS = 1000;
+    const MAX_CACHED_FRAME_WIDTH = 1600;
+    const MAP_BOUNDS = L.latLngBounds(
+      [53.804935, 20.895534],
+      [56.605832, 27.663112]
+    );
+    const RADAR_IMAGE_BOUNDS = L.latLngBounds(
+      [59.701667, 15.618611],
+      [49.876389, 34.313611]
+    );
+
+    const map = L.map("map", {
+      center: [54.95, 23.944954],
+      zoom: window.matchMedia("(max-width: 640px)").matches ? 6 : 7,
+      minZoom: 6,
+      maxZoom: 10,
+      maxBounds: MAP_BOUNDS,
+      zoomControl: true
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors | Radar data: <a href=\"https://www.meteo.lt/\" target=\"_blank\" rel=\"noopener\">LHMT / Meteo.lt</a>"
+    }).addTo(map);
+
+    map.fitBounds(MAP_BOUNDS, { padding: [16, 16] });
+
+    const clockEl = document.getElementById("clock");
+    const frameTimeEl = document.getElementById("frameTime");
+    const statusEl = document.getElementById("status");
+    const frameTimeFormatter = new Intl.DateTimeFormat("lt-LT", {
+      timeZone: "Europe/Vilnius",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+    const clockFormatter = new Intl.DateTimeFormat("lt-LT", {
+      timeZone: "Europe/Vilnius",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+    const frames = new Map();
+    let orderedFrames = [];
+    let latestTimestamp = 0;
+    let radarCanvasLayer = null;
+    let animationTimer = 0;
+    let animationFrameIndex = 0;
+    let activeFrameIndex = -1;
+
+    const RadarCanvasLayer = L.Layer.extend({
+      onAdd(mapInstance) {
+        this.map = mapInstance;
+        this.canvas = L.DomUtil.create("canvas", "leaflet-image-layer radar-frame");
+        this.context = this.canvas.getContext("2d");
+        this.image = null;
+        this.bounds = RADAR_IMAGE_BOUNDS;
+        this.size = L.point(0, 0);
+        mapInstance.getPane("overlayPane").appendChild(this.canvas);
+
+        this._reset = this._reset.bind(this);
+        mapInstance.on("move zoom resize", this._reset);
+        this._reset();
+      },
+
+      onRemove(mapInstance) {
+        mapInstance.off("move zoom resize", this._reset);
+        L.DomUtil.remove(this.canvas);
+      },
+
+      setFrame(frame) {
+        this.image = frame.bitmap;
+        this._draw();
+      },
+
+      _reset() {
+        if (!this.map || !this.canvas) {
+          return;
+        }
+
+        const size = this.map.getSize();
+        const topLeft = this.map.containerPointToLayerPoint([0, 0]);
+        L.DomUtil.setPosition(this.canvas, topLeft);
+        if (!size.equals(this.size)) {
+          this.size = size;
+          this.canvas.width = size.x;
+          this.canvas.height = size.y;
+        }
+        this._draw();
+      },
+
+      _draw() {
+        if (!this.map || !this.canvas || !this.context) {
+          return;
+        }
+
+        const size = this.map.getSize();
+
+        const northWest = this.map.latLngToContainerPoint(this.bounds.getNorthWest());
+        const southEast = this.map.latLngToContainerPoint(this.bounds.getSouthEast());
+        const destX = northWest.x;
+        const destY = northWest.y;
+        const destWidth = southEast.x - northWest.x;
+        const destHeight = southEast.y - northWest.y;
+
+        this.context.clearRect(0, 0, size.x, size.y);
+        if (!this.image) {
+          return;
+        }
+
+        const clipX = Math.max(0, destX);
+        const clipY = Math.max(0, destY);
+        const clipRight = Math.min(size.x, destX + destWidth);
+        const clipBottom = Math.min(size.y, destY + destHeight);
+        const clipWidth = clipRight - clipX;
+        const clipHeight = clipBottom - clipY;
+
+        if (clipWidth <= 0 || clipHeight <= 0) {
+          return;
+        }
+
+        const imageWidth = this.image.naturalWidth || this.image.width;
+        const imageHeight = this.image.naturalHeight || this.image.height;
+        const sourceX = ((clipX - destX) / destWidth) * imageWidth;
+        const sourceY = ((clipY - destY) / destHeight) * imageHeight;
+        const sourceWidth = (clipWidth / destWidth) * imageWidth;
+        const sourceHeight = (clipHeight / destHeight) * imageHeight;
+
+        this.context.imageSmoothingEnabled = true;
+        this.context.drawImage(
+          this.image,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          clipX,
+          clipY,
+          clipWidth,
+          clipHeight
+        );
+      }
+    });
+
+    function pad(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function floorToFrame(date) {
+      const floored = new Date(date);
+      floored.setUTCSeconds(0, 0);
+      floored.setUTCMinutes(Math.floor(floored.getUTCMinutes() / 5) * 5);
+      return floored;
+    }
+
+    function formatStamp(date) {
+      return [
+        date.getUTCFullYear(),
+        pad(date.getUTCMonth() + 1),
+        pad(date.getUTCDate()),
+        pad(date.getUTCHours()),
+        pad(date.getUTCMinutes())
+      ].join("");
+    }
+
+    function formatFrameTime(timestamp) {
+      return frameTimeFormatter.format(new Date(timestamp));
+    }
+
+    function radarUrl(date) {
+      return `${RADAR_BASE_URL}${formatStamp(date)}.png`;
+    }
+
+    async function createCachedBitmap(img) {
+      if (img.decode) {
+        try {
+          await img.decode();
+        } catch (error) {
+          // onload already completed; continue with drawImage fallback.
+        }
+      }
+
+      const scale = Math.min(1, MAX_CACHED_FRAME_WIDTH / img.naturalWidth);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+
+      const context = canvas.getContext("2d", { alpha: true });
+      context.imageSmoothingEnabled = true;
+      context.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    }
+
+    function loadImage(timestamp) {
+      if (frames.has(timestamp)) {
+        return Promise.resolve(frames.get(timestamp));
+      }
+
+      const date = new Date(timestamp);
+      const url = radarUrl(date);
+
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.decoding = "async";
+        img.onload = async () => {
+          try {
+            const bitmap = await createCachedBitmap(img);
+            const frame = { timestamp, url, bitmap };
+            frames.set(timestamp, frame);
+            resolve(frame);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        img.onerror = () => reject(new Error(`Missing radar frame ${formatStamp(date)}`));
+        img.src = url;
+      });
+    }
+
+    async function findLatestTimestamp() {
+      const start = floorToFrame(new Date());
+
+      for (let offset = 0; offset <= 90; offset += 5) {
+        const candidate = new Date(start.getTime() - offset * 60 * 1000);
+        try {
+          await loadImage(candidate.getTime());
+          return candidate.getTime();
+        } catch (error) {
+          // Meteo.lt usually publishes with a short delay; keep walking back.
+        }
+      }
+
+      throw new Error("No recent radar frame found");
+    }
+
+    async function refreshFrames() {
+      statusEl.textContent = "Updating";
+
+      try {
+        const discoveredLatest = await findLatestTimestamp();
+        latestTimestamp = Math.max(latestTimestamp, discoveredLatest);
+
+        const needed = [];
+        for (let i = FRAME_COUNT - 1; i >= 0; i -= 1) {
+          needed.push(latestTimestamp - i * FRAME_INTERVAL_MS);
+        }
+
+        await Promise.allSettled(needed.map(loadImage));
+
+        const cutoff = latestTimestamp - HISTORY_MS;
+        for (const timestamp of frames.keys()) {
+          if (timestamp < cutoff) {
+            frames.delete(timestamp);
+          }
+        }
+
+        orderedFrames = Array.from(frames.values())
+          .filter((frame) => frame.timestamp >= cutoff && frame.timestamp <= latestTimestamp)
+          .sort((a, b) => a.timestamp - b.timestamp);
+
+        if (orderedFrames.length > 0) {
+          statusEl.textContent = `${orderedFrames.length} frames`;
+          restartAnimation();
+        } else {
+          statusEl.textContent = "No frames";
+        }
+      } catch (error) {
+        statusEl.textContent = "Radar unavailable";
+      }
+    }
+
+    function showFrame(index) {
+      if (index === activeFrameIndex || orderedFrames.length === 0) {
+        return;
+      }
+
+      const frame = orderedFrames[index];
+      radarCanvasLayer.setFrame(frame);
+
+      activeFrameIndex = index;
+      frameTimeEl.textContent = formatFrameTime(frame.timestamp);
+    }
+
+    function scheduleNextFrame(delay) {
+      window.clearTimeout(animationTimer);
+      animationTimer = window.setTimeout(stepAnimation, delay);
+    }
+
+    function stepAnimation() {
+      if (document.hidden) {
+        scheduleNextFrame(FREEZE_MS);
+        return;
+      }
+
+      if (orderedFrames.length === 0) {
+        scheduleNextFrame(FREEZE_MS);
+        return;
+      }
+
+      const latestIndex = orderedFrames.length - 1;
+      showFrame(animationFrameIndex);
+
+      if (animationFrameIndex >= latestIndex) {
+        animationFrameIndex = 0;
+        scheduleNextFrame(FREEZE_MS);
+        return;
+      }
+
+      animationFrameIndex += 1;
+      scheduleNextFrame(ANIMATION_MS / Math.max(1, latestIndex));
+    }
+
+    function restartAnimation() {
+      animationFrameIndex = 0;
+      activeFrameIndex = -1;
+      stepAnimation();
+    }
+
+    function updateClock() {
+      clockEl.textContent = clockFormatter.format(new Date());
+    }
+
+    updateClock();
+    radarCanvasLayer = new RadarCanvasLayer();
+    radarCanvasLayer.addTo(map);
+    refreshFrames();
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && orderedFrames.length > 0) {
+        restartAnimation();
+      }
+    });
+    setInterval(updateClock, 1000);
+    setInterval(refreshFrames, FRAME_INTERVAL_MS);
+  </script>
+</body>
+</html>

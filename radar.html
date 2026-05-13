@@ -137,7 +137,7 @@
       position: fixed;
       z-index: 500;
       right: 12px;
-      bottom: 46px;
+      bottom: 70px;
       display: grid;
       gap: 4px;
       min-width: 176px;
@@ -171,6 +171,66 @@
       color: #f4c77f;
     }
 
+    .timeline {
+      position: fixed;
+      z-index: 500;
+      left: 12px;
+      right: 12px;
+      bottom: 34px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 22px;
+      color: #f7f4eb;
+      font-size: 0.76rem;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      pointer-events: none;
+    }
+
+    .timeline-time {
+      min-width: 43px;
+      color: #d8e1dd;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.82);
+    }
+
+    .timeline-time.end {
+      text-align: right;
+    }
+
+    .timeline-track {
+      position: relative;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(247, 244, 235, 0.22);
+      box-shadow:
+        0 0 0 1px rgba(8, 14, 18, 0.48),
+        0 4px 14px rgba(0, 0, 0, 0.24);
+    }
+
+    .timeline-progress {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: transparent;
+      transition: width 130ms linear;
+    }
+
+    .timeline-thumb {
+      position: absolute;
+      top: 50%;
+      left: 0%;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #0b1115;
+      border-radius: 50%;
+      background: #f7f4eb;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.38);
+      transform: translate(-50%, -50%);
+      transition: left 130ms linear;
+    }
+
     .leaflet-image-layer.radar-frame {
       mix-blend-mode: normal;
       pointer-events: none;
@@ -188,13 +248,25 @@
 
       .hud {
         right: 8px;
-        bottom: 36px;
+        bottom: 42px;
         min-width: 148px;
         padding: 8px 9px;
       }
 
       .clock {
         font-size: 1.06rem;
+      }
+
+      .timeline {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        gap: 7px;
+        font-size: 0.68rem;
+      }
+
+      .timeline-time {
+        min-width: 38px;
       }
     }
   </style>
@@ -205,6 +277,14 @@
     <div class="clock" id="clock">--:--:--</div>
     <div class="frame-time" id="frameTime">Loading radar</div>
     <div class="status" id="status">Fetching frames</div>
+  </div>
+  <div class="timeline" aria-hidden="true">
+    <div class="timeline-time" id="timelineStart">--:--</div>
+    <div class="timeline-track">
+      <div class="timeline-progress" id="timelineProgress"></div>
+      <div class="timeline-thumb" id="timelineThumb"></div>
+    </div>
+    <div class="timeline-time end" id="timelineEnd">--:--</div>
   </div>
 
   <script
@@ -248,6 +328,10 @@
     const clockEl = document.getElementById("clock");
     const frameTimeEl = document.getElementById("frameTime");
     const statusEl = document.getElementById("status");
+    const timelineStartEl = document.getElementById("timelineStart");
+    const timelineEndEl = document.getElementById("timelineEnd");
+    const timelineProgressEl = document.getElementById("timelineProgress");
+    const timelineThumbEl = document.getElementById("timelineThumb");
     const frameTimeFormatter = new Intl.DateTimeFormat("lt-LT", {
       timeZone: "Europe/Vilnius",
       month: "short",
@@ -261,13 +345,20 @@
       minute: "2-digit",
       second: "2-digit"
     });
+    const timelineTimeFormatter = new Intl.DateTimeFormat("lt-LT", {
+      timeZone: "Europe/Vilnius",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
     const frames = new Map();
     let orderedFrames = [];
     let latestTimestamp = 0;
     let radarCanvasLayer = null;
     let animationTimer = 0;
     let animationFrameIndex = 0;
+    let animationDirection = 1;
     let activeFrameIndex = -1;
+    let activeFrameTimestamp = 0;
 
     const RadarCanvasLayer = L.Layer.extend({
       onAdd(mapInstance) {
@@ -387,6 +478,10 @@
       return frameTimeFormatter.format(new Date(timestamp));
     }
 
+    function formatTimelineTime(timestamp) {
+      return timelineTimeFormatter.format(new Date(timestamp));
+    }
+
     function radarUrl(date) {
       return `${RADAR_BASE_URL}${formatStamp(date)}.png`;
     }
@@ -480,25 +575,53 @@
 
         if (orderedFrames.length > 0) {
           statusEl.textContent = `${orderedFrames.length} frames`;
+          updateTimelineBounds();
           restartAnimation();
         } else {
           statusEl.textContent = "No frames";
+          updateTimelineBounds();
         }
       } catch (error) {
         statusEl.textContent = "Radar unavailable";
       }
     }
 
+    function updateTimelineBounds() {
+      if (orderedFrames.length === 0) {
+        timelineStartEl.textContent = "--:--";
+        timelineEndEl.textContent = "--:--";
+        updateTimelinePosition(0);
+        return;
+      }
+
+      timelineStartEl.textContent = formatTimelineTime(orderedFrames[0].timestamp);
+      timelineEndEl.textContent = formatTimelineTime(orderedFrames[orderedFrames.length - 1].timestamp);
+    }
+
+    function updateTimelinePosition(index) {
+      const latestIndex = Math.max(0, orderedFrames.length - 1);
+      const progress = latestIndex === 0 ? 0 : (index / latestIndex) * 100;
+      const position = `${Math.max(0, Math.min(100, progress))}%`;
+      timelineProgressEl.style.width = position;
+      timelineThumbEl.style.left = position;
+    }
+
     function showFrame(index) {
-      if (index === activeFrameIndex || orderedFrames.length === 0) {
+      if (orderedFrames.length === 0) {
         return;
       }
 
       const frame = orderedFrames[index];
+      if (!frame || (index === activeFrameIndex && frame.timestamp === activeFrameTimestamp)) {
+        return;
+      }
+
       radarCanvasLayer.setFrame(frame);
 
       activeFrameIndex = index;
+      activeFrameTimestamp = frame.timestamp;
       frameTimeEl.textContent = formatFrameTime(frame.timestamp);
+      updateTimelinePosition(index);
     }
 
     function scheduleNextFrame(delay) {
@@ -521,18 +644,30 @@
       showFrame(animationFrameIndex);
 
       if (animationFrameIndex >= latestIndex) {
-        animationFrameIndex = 0;
+        animationDirection = -1;
+        animationFrameIndex = Math.max(0, latestIndex - 1);
         scheduleNextFrame(FREEZE_MS);
         return;
       }
 
-      animationFrameIndex += 1;
+      if (animationFrameIndex <= 0) {
+        animationDirection = 1;
+      }
+
+      animationFrameIndex += animationDirection;
       scheduleNextFrame(ANIMATION_MS / Math.max(1, latestIndex));
     }
 
     function restartAnimation() {
-      animationFrameIndex = 0;
-      activeFrameIndex = -1;
+      if (activeFrameTimestamp > 0 && orderedFrames.length > 0) {
+        const timestampIndex = orderedFrames.findIndex((frame) => frame.timestamp === activeFrameTimestamp);
+        animationFrameIndex = timestampIndex >= 0
+          ? timestampIndex
+          : Math.min(activeFrameIndex, orderedFrames.length - 1);
+      } else {
+        animationFrameIndex = 0;
+        animationDirection = 1;
+      }
       stepAnimation();
     }
 

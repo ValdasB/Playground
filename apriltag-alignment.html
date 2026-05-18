@@ -67,6 +67,41 @@
       pointer-events: none;
     }
 
+    .legend {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 7px 9px;
+      border: 1px solid rgba(247, 242, 232, 0.18);
+      border-radius: 8px;
+      background: rgba(5, 8, 11, 0.76);
+      color: var(--muted);
+      font-size: 0.8rem;
+      pointer-events: none;
+      backdrop-filter: blur(6px);
+    }
+
+    .legend span {
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+      white-space: nowrap;
+    }
+
+    .legend i {
+      width: 16px;
+      height: 3px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .legend .current { color: #63a7ff; }
+    .legend .reference { color: #ffd166; }
+    .legend .correction { color: #ff6b6b; }
+
     .pill {
       min-width: 92px;
       padding: 7px 9px;
@@ -279,6 +314,11 @@
         <div class="pill"><span>Aligned</span><strong id="hud-aligned">0</strong></div>
         <div class="pill"><span>Worst Tilt</span><strong id="hud-worst">0.0 deg</strong></div>
         <div class="pill"><span>FPS</span><strong id="hud-fps">0.0</strong></div>
+      </div>
+      <div class="legend" aria-hidden="true">
+        <span class="current"><i></i>Current</span>
+        <span class="reference"><i></i>Reference</span>
+        <span class="correction"><i></i>Tilt</span>
       </div>
     </section>
 
@@ -932,6 +972,14 @@
       return [rotation[2], rotation[5], rotation[8]];
     }
 
+    function screenNormal(normal) {
+      const z = Math.max(0.2, Math.abs(normal[2]));
+      return {
+        x: normal[0] / z,
+        y: normal[1] / z
+      };
+    }
+
     function dot(a, b) {
       return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
@@ -1011,6 +1059,8 @@
 
       return poses.map((pose) => {
         const normal = normalFromRotation(pose.rotation);
+        const currentScreenNormal = screenNormal(normal);
+        const referenceScreenNormal = screenNormal(refNormal);
         const relativeRotation = multiply3(transpose3(reference.rotation), pose.rotation);
         const euler = eulerFromRotation(relativeRotation);
         const angle = radiansToDegrees(Math.acos(clamp(Math.abs(dot(refNormal, normal)), -1, 1)));
@@ -1023,6 +1073,12 @@
           yaw: pose.id === reference.id ? 0 : euler.yaw,
           pitch: pose.id === reference.id ? 0 : euler.pitch,
           roll: pose.id === reference.id ? 0 : euler.roll,
+          screenNormal: currentScreenNormal,
+          referenceScreenNormal,
+          correction: {
+            x: referenceScreenNormal.x - currentScreenNormal.x,
+            y: referenceScreenNormal.y - currentScreenNormal.y
+          },
           lastSeen: Date.now()
         };
       });
@@ -1121,6 +1177,9 @@
 
         const centerX = (tag.center ? tag.center.x : corners.reduce((sum, point) => sum + point.x, 0) / corners.length) * scaleX;
         const centerY = (tag.center ? tag.center.y : corners.reduce((sum, point) => sum + point.y, 0) / corners.length) * scaleY;
+        if (result) {
+          drawAlignmentCue(result, centerX, centerY);
+        }
         const label = result ? `ID ${tag.id} ${status} ${result.planeAngle.toFixed(1)} deg` : `ID ${tag.id}`;
         const metrics = overlayContext.measureText(label);
         const boxWidth = metrics.width + 18;
@@ -1130,6 +1189,65 @@
         overlayContext.fillStyle = color;
         overlayContext.fillText(label, centerX, centerY + 1);
       });
+    }
+
+    function drawAlignmentCue(result, centerX, centerY) {
+      if (!result.screenNormal || !result.referenceScreenNormal) {
+        return;
+      }
+      const baseLength = Math.max(34, Math.min(86, overlay.width / 13));
+      const currentEnd = {
+        x: centerX + result.screenNormal.x * baseLength,
+        y: centerY + result.screenNormal.y * baseLength
+      };
+      const targetEnd = {
+        x: centerX + result.referenceScreenNormal.x * baseLength,
+        y: centerY + result.referenceScreenNormal.y * baseLength
+      };
+
+      overlayContext.save();
+      overlayContext.lineWidth = Math.max(3, overlay.width / 520);
+      overlayContext.setLineDash([]);
+      drawArrow(centerX, centerY, currentEnd.x, currentEnd.y, "#63a7ff");
+      overlayContext.setLineDash([8, 6]);
+      drawArrow(centerX, centerY, targetEnd.x, targetEnd.y, "#ffd166");
+      overlayContext.setLineDash([]);
+
+      if (!result.isReference && result.planeAngle > 0.25) {
+        overlayContext.lineWidth = Math.max(4, overlay.width / 420);
+        drawArrow(currentEnd.x, currentEnd.y, targetEnd.x, targetEnd.y, "#ff6b6b");
+        const labelX = (currentEnd.x + targetEnd.x) / 2;
+        const labelY = (currentEnd.y + targetEnd.y) / 2;
+        overlayContext.font = `700 ${Math.max(13, Math.round(overlay.width / 78))}px Trebuchet MS`;
+        overlayContext.textAlign = "center";
+        overlayContext.textBaseline = "bottom";
+        overlayContext.fillStyle = "#ff6b6b";
+        overlayContext.fillText("tilt", labelX, labelY - 5);
+      }
+      overlayContext.restore();
+    }
+
+    function drawArrow(fromX, fromY, toX, toY, color) {
+      const dx = toX - fromX;
+      const dy = toY - fromY;
+      const length = Math.hypot(dx, dy);
+      if (length < 4) {
+        return;
+      }
+      const angle = Math.atan2(dy, dx);
+      const head = Math.min(15, Math.max(8, length * 0.28));
+      overlayContext.strokeStyle = color;
+      overlayContext.fillStyle = color;
+      overlayContext.beginPath();
+      overlayContext.moveTo(fromX, fromY);
+      overlayContext.lineTo(toX, toY);
+      overlayContext.stroke();
+      overlayContext.beginPath();
+      overlayContext.moveTo(toX, toY);
+      overlayContext.lineTo(toX - head * Math.cos(angle - Math.PI / 6), toY - head * Math.sin(angle - Math.PI / 6));
+      overlayContext.lineTo(toX - head * Math.cos(angle + Math.PI / 6), toY - head * Math.sin(angle + Math.PI / 6));
+      overlayContext.closePath();
+      overlayContext.fill();
     }
 
     function drawAxis(points, scaleX, scaleY) {

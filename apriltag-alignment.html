@@ -816,6 +816,16 @@
       return matFromArray(calibration.distCoeffs.length, 1, cv.CV_64F, calibration.distCoeffs);
     }
 
+    function orderedCornersForPose(corners) {
+      const points = corners.map((corner) => ({ x: corner.x, y: corner.y }));
+      const withSums = points.map((point) => ({ point, sum: point.x + point.y, diff: point.x - point.y }));
+      const topLeft = withSums.reduce((best, item) => item.sum < best.sum ? item : best).point;
+      const bottomRight = withSums.reduce((best, item) => item.sum > best.sum ? item : best).point;
+      const topRight = withSums.reduce((best, item) => item.diff > best.diff ? item : best).point;
+      const bottomLeft = withSums.reduce((best, item) => item.diff < best.diff ? item : best).point;
+      return [topLeft, topRight, bottomRight, bottomLeft];
+    }
+
     function estimatedCalibration() {
       const width = video.videoWidth || lastDetectionSize.width || 0;
       const height = video.videoHeight || lastDetectionSize.height || 0;
@@ -843,21 +853,22 @@
       if (corners.length < 4 || !tagSizeMm) {
         return null;
       }
+      const poseCorners = orderedCornersForPose(corners);
 
       const scaleX = lastDetectionSize.width / calibration.frameSize.width;
       const scaleY = lastDetectionSize.height / calibration.frameSize.height;
       const half = tagSizeMm / 2;
       const objectPoints = matFromArray(4, 1, cv.CV_64FC3, [
-        -half, -half, 0,
-        half, -half, 0,
+        -half, half, 0,
         half, half, 0,
-        -half, half, 0
+        half, -half, 0,
+        -half, -half, 0
       ]);
       const imagePoints = matFromArray(4, 1, cv.CV_64FC2, [
-        corners[0].x, corners[0].y,
-        corners[1].x, corners[1].y,
-        corners[2].x, corners[2].y,
-        corners[3].x, corners[3].y
+        poseCorners[0].x, poseCorners[0].y,
+        poseCorners[1].x, poseCorners[1].y,
+        poseCorners[2].x, poseCorners[2].y,
+        poseCorners[3].x, poseCorners[3].y
       ]);
       const cameraMatrix = cameraMatrixFor(calibration, scaleX, scaleY);
       const distCoeffs = distCoeffsFor(calibration);
@@ -899,7 +910,7 @@
         0, 0, 0,
         axis, 0, 0,
         0, axis, 0,
-        0, 0, -axis
+        0, 0, axis
       ]);
       const image = new cv.Mat();
       try {

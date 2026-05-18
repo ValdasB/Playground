@@ -510,6 +510,7 @@
       cv.onRuntimeInitialized = () => {
         cvReady = true;
         updateCalibrationState();
+        renderAlignment();
         setStatus(detectorReady ? "Ready. Start the camera." : "OpenCV ready. Loading detector.");
       };
     }
@@ -612,12 +613,14 @@
     function updateCalibrationState() {
       activeCalibration = findCalibration();
       const node = document.getElementById("calibration-state");
-      if (!cvReady) {
-        node.textContent = "OpenCV loading";
+      if (activeCalibration && cvReady) {
+        node.textContent = `Calibrated ${activeCalibration.frameSize.width} x ${activeCalibration.frameSize.height}`;
       } else if (activeCalibration) {
-        node.textContent = `${activeCalibration.frameSize.width} x ${activeCalibration.frameSize.height}`;
+        node.textContent = "Saved, OpenCV loading";
+      } else if (!cvReady) {
+        node.textContent = "Pose loading";
       } else {
-        node.textContent = "Missing";
+        node.textContent = "Estimated";
       }
       document.getElementById("calibration-json").value = activeCalibration ? JSON.stringify(activeCalibration, null, 2) : "";
     }
@@ -646,7 +649,11 @@
       detectorWorker.onmessage = (event) => {
         if (event.data.type === "ready") {
           detectorReady = true;
-          setStatus(cvReady ? "Ready. Start the camera." : "Detector ready. Loading OpenCV.");
+          if (stream) {
+            setStatus(activeCalibration && cvReady ? "Detector ready. Scanning tags." : "Detector ready. Scanning tags without calibration.");
+          } else {
+            setStatus(cvReady ? "Ready. Start the camera." : "Detector ready. Calibration math will load when OpenCV is available.");
+          }
           return;
         }
         if (event.data.type === "error") {
@@ -678,11 +685,6 @@
         setStatus("Camera access requires HTTPS or localhost.", "error");
         return;
       }
-      if (!detectorReady || !cvReady) {
-        setStatus("Libraries are still loading.", "warn");
-        return;
-      }
-
       const selectedDeviceId = cameraDeviceSelect.value;
       const facingMode = document.getElementById("facing-mode").value;
       const resolution = parseResolution();
@@ -715,7 +717,11 @@
         await refreshCameraDevices();
         updateCalibrationState();
         stats = { scanned: 0, totalMs: 0, lastMs: 0, startedAt: performance.now(), previewFrames: 0 };
-        setStatus(activeCalibration ? "Camera started." : "Camera started. Calibration is missing.", activeCalibration ? "ready" : "warn");
+        if (!detectorReady) {
+          setStatus("Camera started. AprilTag detector is still loading.", "warn");
+        } else {
+          setStatus(activeCalibration && cvReady ? "Camera started with saved calibration." : "Camera started with estimated camera calibration.", activeCalibration && cvReady ? "ready" : "warn");
+        }
         animationFrame = requestAnimationFrame(scanLoop);
       } catch (error) {
         setStatus(error && error.name ? `${error.name}: ${error.message || "camera access failed"}` : "camera access failed", "error");
@@ -808,6 +814,28 @@
 
     function distCoeffsFor(calibration) {
       return matFromArray(calibration.distCoeffs.length, 1, cv.CV_64F, calibration.distCoeffs);
+    }
+
+    function estimatedCalibration() {
+      const width = video.videoWidth || lastDetectionSize.width || 0;
+      const height = video.videoHeight || lastDetectionSize.height || 0;
+      if (!width || !height) {
+        return null;
+      }
+      const horizontalFovDegrees = 60;
+      const focal = width / (2 * Math.tan((horizontalFovDegrees * Math.PI / 180) / 2));
+      return {
+        type: "estimated-camera-calibration",
+        version: 1,
+        deviceId: cameraDeviceSelect.value || "",
+        frameSize: { width, height },
+        cameraMatrix: [
+          focal, 0, width / 2,
+          0, focal, height / 2,
+          0, 0, 1
+        ],
+        distCoeffs: [0, 0, 0, 0, 0]
+      };
     }
 
     function poseForTag(tag, calibration, tagSizeMm) {
@@ -956,11 +984,12 @@
 
     function computeResults() {
       const settings = readSettings();
-      if (!activeCalibration || !cvReady || !settings.tagSizeMm) {
+      const calibration = activeCalibration || estimatedCalibration();
+      if (!calibration || !cvReady || !settings.tagSizeMm) {
         return [];
       }
       const poses = lastDetections
-        .map((tag) => poseForTag(tag, activeCalibration, settings.tagSizeMm))
+        .map((tag) => poseForTag(tag, calibration, settings.tagSizeMm))
         .filter(Boolean);
       if (!poses.length) {
         return [];
@@ -988,6 +1017,21 @@
       });
     }
 
+    function detectionOnlyRows(statusText) {
+      return lastDetections.map((tag) => `
+        <tr>
+          <td>${tag.id}</td>
+          <td><span class="badge neutral">${statusText}</span></td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>${new Date().toLocaleTimeString()}</td>
+        </tr>
+      `).join("");
+    }
+
     function renderAlignment() {
       lastResults = computeResults();
       drawOverlay();
@@ -997,16 +1041,16 @@
         body.innerHTML = `<tr><td colspan="8">No tags detected yet.</td></tr>`;
         return;
       }
-      if (!activeCalibration) {
-        body.innerHTML = `<tr><td colspan="8">No calibration for this camera/resolution. Open Camera Calibration or import calibration JSON.</td></tr>`;
+      if (!cvReady) {
+        body.innerHTML = detectionOnlyRows("DETECT");
         return;
       }
       if (!settings.tagSizeMm) {
-        body.innerHTML = `<tr><td colspan="8">Enter tag size to estimate pose.</td></tr>`;
+        body.innerHTML = detectionOnlyRows("SIZE");
         return;
       }
       if (!lastResults.length) {
-        body.innerHTML = `<tr><td colspan="8">Tags detected, but pose estimation failed.</td></tr>`;
+        body.innerHTML = detectionOnlyRows("POSE");
         return;
       }
       body.innerHTML = lastResults.map((result) => {

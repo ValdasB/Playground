@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111820">
+  <title>Camera Calibration</title>
+  <style>
+    :root {
+      --bg: #111820;
+      --panel: #182530;
+      --panel-2: #223643;
+      --ink: #f7f2e8;
+      --muted: #c5d0ce;
+      --accent: #d9822b;
+      --good: #5df2a3;
+      --warn: #ffd166;
+      --bad: #ff6b6b;
+      --border: #405765;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      background: linear-gradient(180deg, #0b1117 0, var(--bg) 100%);
+      color: var(--ink);
+    }
+
+    main {
+      width: min(1180px, calc(100% - 28px));
+      margin: 0 auto;
+      padding: 18px 0 28px;
+    }
+
+    .head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.45rem;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .status {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-align: right;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(300px, 1fr) minmax(300px, 0.85fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .stage,
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(5, 8, 11, 0.28);
+      overflow: hidden;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 320px;
+      aspect-ratio: 16 / 10;
+      background: #05080b;
+    }
+
+    video,
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    canvas#overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .panel {
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .panel h2 {
+      margin: 0 0 9px;
+      font-size: 1rem;
+    }
+
+    .toolbar,
+    .form-grid,
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .form-grid {
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    button,
+    select,
+    input,
+    textarea {
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font: inherit;
+    }
+
+    button {
+      padding: 7px 11px;
+      border-color: transparent;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      border-color: var(--border);
+      background: var(--panel-2);
+      color: var(--ink);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    select,
+    input,
+    textarea {
+      width: 100%;
+      padding: 7px 9px;
+      background: #f7f1e4;
+      color: #15191b;
+    }
+
+    textarea {
+      min-height: 112px;
+      resize: vertical;
+      font-family: Consolas, monospace;
+      font-size: 0.82rem;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(5, 8, 11, 0.28);
+      padding: 10px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 1.06rem;
+    }
+
+    .pattern-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f8f8f8;
+      padding: 16px;
+    }
+
+    .checkerboard {
+      display: grid;
+      margin: 0 auto;
+      border: 1px solid #111;
+      background: white;
+    }
+
+    .square.black { background: #111; }
+    .square.white { background: #fff; }
+
+    a { color: var(--ink); }
+
+    @media (max-width: 850px) {
+      .head,
+      .layout {
+        display: grid;
+      }
+
+      .status {
+        text-align: left;
+      }
+    }
+
+    @media print {
+      body {
+        background: white;
+      }
+
+      main > :not(#print-panel),
+      #print-panel .panel-head,
+      #print-panel .toolbar {
+        display: none !important;
+      }
+
+      main {
+        width: auto;
+        padding: 0;
+      }
+
+      #print-panel {
+        border: 0;
+        padding: 0;
+        margin: 0;
+        background: white;
+      }
+
+      .pattern-wrap {
+        border: 0;
+        padding: 0;
+        overflow: visible;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="head">
+      <h1>Camera Calibration</h1>
+      <div id="status" class="status">Loading OpenCV...</div>
+    </div>
+
+    <div class="toolbar">
+      <button id="start-camera" type="button">Start Camera</button>
+      <button id="stop-camera" class="secondary" type="button">Stop Camera</button>
+      <button id="refresh-cameras" class="secondary" type="button">Refresh Cameras</button>
+      <a href="apriltag-alignment.html"><button class="secondary" type="button">Alignment Page</button></a>
+    </div>
+
+    <section class="layout">
+      <div>
+        <div class="stage" aria-label="Camera preview">
+          <video id="camera" playsinline autoplay muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+
+        <div class="panel">
+          <h2>Capture</h2>
+          <div class="form-grid">
+            <label>
+              Camera
+              <select id="camera-device">
+                <option value="">Auto rear camera</option>
+              </select>
+            </label>
+            <label>
+              Facing
+              <select id="facing-mode">
+                <option value="environment">Rear</option>
+                <option value="user">Front</option>
+              </select>
+            </label>
+            <label>
+              Requested Resolution
+              <select id="resolution">
+                <option value="1920x1080">1920 x 1080</option>
+                <option value="1280x720" selected>1280 x 720</option>
+                <option value="960x540">960 x 540</option>
+                <option value="640x480">640 x 480</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              Inner Columns
+              <input id="inner-cols" type="number" min="3" max="24" step="1" value="9">
+            </label>
+            <label>
+              Inner Rows
+              <input id="inner-rows" type="number" min="3" max="18" step="1" value="6">
+            </label>
+            <label>
+              Square Size (mm)
+              <input id="square-size" type="number" min="1" step="0.1" value="25">
+            </label>
+            <label>
+              Target Captures
+              <input id="target-captures" type="number" min="6" max="40" step="1" value="12">
+            </label>
+          </div>
+
+          <div class="toolbar">
+            <button id="capture-frame" type="button">Capture View</button>
+            <button id="run-calibration" type="button">Calibrate</button>
+            <button id="reset-captures" class="secondary" type="button">Reset Captures</button>
+          </div>
+
+          <div class="metrics" aria-live="polite">
+            <div class="metric"><span>Pattern</span><strong id="pattern-state">Not found</strong></div>
+            <div class="metric"><span>Captures</span><strong id="capture-count">0 / 12</strong></div>
+            <div class="metric"><span>Video Size</span><strong id="video-size">0 x 0</strong></div>
+            <div class="metric"><span>Reprojection</span><strong id="reprojection">-</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div id="print-panel" class="panel">
+          <div class="panel-head">
+            <h2>Printable Checkerboard</h2>
+          </div>
+          <div class="pattern-wrap">
+            <div id="checkerboard" class="checkerboard" aria-label="Checkerboard calibration pattern"></div>
+          </div>
+          <div class="toolbar" style="margin: 10px 0 0;">
+            <button id="print-pattern" type="button">Print Pattern</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Calibration JSON</h2>
+          <textarea id="calibration-json" spellcheck="false" placeholder="Calibration JSON will appear here after calibration."></textarea>
+          <div class="toolbar" style="margin: 8px 0 0;">
+            <button id="save-calibration" type="button">Save</button>
+            <button id="import-calibration" class="secondary" type="button">Import</button>
+            <button id="clear-calibration" class="secondary" type="button">Clear Current</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const STORAGE_CAMERA = "camera_calibration_camera_device";
+    const STORAGE_SETTINGS = "camera_calibration_settings";
+    const STORAGE_CALIBRATIONS = "camera_calibrations_v1";
+
+    const video = document.getElementById("camera");
+    const overlay = document.getElementById("overlay");
+    const overlayContext = overlay.getContext("2d");
+    const frameCanvas = document.createElement("canvas");
+    const frameContext = frameCanvas.getContext("2d", { willReadFrequently: true });
+    const statusNode = document.getElementById("status");
+    const cameraDeviceSelect = document.getElementById("camera-device");
+
+    let cvReady = false;
+    let stream = null;
+    let activeTrack = null;
+    let animationFrame = 0;
+    let lastCorners = null;
+    let lastGray = null;
+    let objectPointSets = [];
+    let imagePointSets = [];
+    let lastCalibration = null;
+
+    function onOpenCvLoaded() {
+      cv.onRuntimeInitialized = () => {
+        cvReady = true;
+        setStatus("OpenCV ready. Start the camera.");
+      };
+    }
+
+    window.onOpenCvLoaded = onOpenCvLoaded;
+
+    function setStatus(text, kind = "ready") {
+      statusNode.textContent = text;
+      statusNode.style.color = kind === "error" ? "var(--bad)" : kind === "warn" ? "var(--warn)" : "var(--muted)";
+    }
+
+    function cameraApiAvailable() {
+      return Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function pageHasCameraAccessChance() {
+      return window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    }
+
+    function boardSettings() {
+      return {
+        innerCols: Number(document.getElementById("inner-cols").value) || 9,
+        innerRows: Number(document.getElementById("inner-rows").value) || 6,
+        squareSizeMm: Number(document.getElementById("square-size").value) || 25,
+        targetCaptures: Number(document.getElementById("target-captures").value) || 12
+      };
+    }
+
+    function parseResolution() {
+      const [width, height] = document.getElementById("resolution").value.split("x").map(Number);
+      return { width, height };
+    }
+
+    function saveSettings() {
+      localStorage.setItem(STORAGE_SETTINGS, JSON.stringify(boardSettings()));
+      renderCheckerboard();
+      updateMetrics();
+    }
+
+    function loadSettings() {
+      try {
+        const settings = JSON.parse(localStorage.getItem(STORAGE_SETTINGS) || "{}");
+        if (settings.innerCols) document.getElementById("inner-cols").value = settings.innerCols;
+        if (settings.innerRows) document.getElementById("inner-rows").value = settings.innerRows;
+        if (settings.squareSizeMm) document.getElementById("square-size").value = settings.squareSizeMm;
+        if (settings.targetCaptures) document.getElementById("target-captures").value = settings.targetCaptures;
+      } catch (error) {
+        localStorage.removeItem(STORAGE_SETTINGS);
+      }
+    }
+
+    async function refreshCameraDevices() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return;
+      }
+
+      const selected = localStorage.getItem(STORAGE_CAMERA) || "";
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameraDevices = devices.filter((device) => device.kind === "videoinput");
+      cameraDeviceSelect.innerHTML = `<option value="">Auto rear camera</option>`;
+      cameraDevices.forEach((device, index) => {
+        const option = document.createElement("option");
+        option.value = device.deviceId;
+        option.textContent = device.label || `Camera ${index + 1}`;
+        option.selected = device.deviceId === selected;
+        cameraDeviceSelect.appendChild(option);
+      });
+    }
+
+    async function startCamera() {
+      await stopCamera();
+      if (!cameraApiAvailable()) {
+        setStatus("Camera API is not available in this browser.", "error");
+        return;
+      }
+      if (!pageHasCameraAccessChance()) {
+        setStatus("Camera access requires HTTPS or localhost.", "error");
+        return;
+      }
+      if (!cvReady) {
+        setStatus("OpenCV is still loading.", "warn");
+        return;
+      }
+
+      const selectedDeviceId = cameraDeviceSelect.value;
+      const facingMode = document.getElementById("facing-mode").value;
+      const resolution = parseResolution();
+      const preferredVideo = selectedDeviceId
+        ? { deviceId: { exact: selectedDeviceId }, width: { ideal: resolution.width }, height: { ideal: resolution.height } }
+        : { facingMode: { ideal: facingMode }, width: { ideal: resolution.width }, height: { ideal: resolution.height } };
+      const attempts = [
+        { video: preferredVideo, audio: false },
+        { video: { facingMode, width: { ideal: resolution.width }, height: { ideal: resolution.height } }, audio: false },
+        { video: true, audio: false }
+      ];
+
+      try {
+        let lastError = null;
+        for (const constraints of attempts) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            break;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        if (!stream) {
+          throw lastError || new Error("camera access failed");
+        }
+
+        video.srcObject = stream;
+        activeTrack = stream.getVideoTracks()[0] || null;
+        await video.play();
+        await refreshCameraDevices();
+        setStatus("Camera started. Aim at the checkerboard.");
+        animationFrame = requestAnimationFrame(scanLoop);
+      } catch (error) {
+        setStatus(error && error.name ? `${error.name}: ${error.message || "camera access failed"}` : "camera access failed", "error");
+      }
+    }
+
+    async function stopCamera() {
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = 0;
+      }
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      stream = null;
+      activeTrack = null;
+      video.srcObject = null;
+      clearLastFrame();
+      updateMetrics();
+    }
+
+    function clearLastFrame() {
+      if (lastCorners) {
+        lastCorners.delete();
+      }
+      if (lastGray) {
+        lastGray.delete();
+      }
+      lastCorners = null;
+      lastGray = null;
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      document.getElementById("pattern-state").textContent = "Not found";
+    }
+
+    function scanLoop() {
+      animationFrame = requestAnimationFrame(scanLoop);
+      if (!video.videoWidth || !video.videoHeight || !cvReady) {
+        return;
+      }
+      if (frameCanvas.width !== video.videoWidth || frameCanvas.height !== video.videoHeight) {
+        frameCanvas.width = video.videoWidth;
+        frameCanvas.height = video.videoHeight;
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+      }
+      frameContext.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+      findPattern();
+      updateMetrics();
+    }
+
+    function findPattern() {
+      clearLastFrame();
+      const settings = boardSettings();
+      const src = cv.imread(frameCanvas);
+      const gray = new cv.Mat();
+      const corners = new cv.Mat();
+      const patternSize = new cv.Size(settings.innerCols, settings.innerRows);
+      try {
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        const found = cv.findChessboardCorners(gray, patternSize, corners, cv.CALIB_CB_ADAPTIVE_THRESH + cv.CALIB_CB_NORMALIZE_IMAGE);
+        if (!found) {
+          document.getElementById("pattern-state").textContent = "Not found";
+          return;
+        }
+        const criteria = new cv.TermCriteria(cv.TermCriteria_EPS + cv.TermCriteria_MAX_ITER, 30, 0.001);
+        cv.cornerSubPix(gray, corners, new cv.Size(11, 11), new cv.Size(-1, -1), criteria);
+        lastCorners = corners.clone();
+        lastGray = gray.clone();
+        document.getElementById("pattern-state").textContent = "Found";
+        drawCorners(corners);
+      } finally {
+        src.delete();
+        gray.delete();
+        corners.delete();
+      }
+    }
+
+    function drawCorners(corners) {
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      overlayContext.fillStyle = "#5df2a3";
+      overlayContext.strokeStyle = "#111820";
+      overlayContext.lineWidth = 2;
+      for (let i = 0; i < corners.rows; i += 1) {
+        const point = corners.data32F;
+        const x = point[i * 2];
+        const y = point[i * 2 + 1];
+        overlayContext.beginPath();
+        overlayContext.arc(x, y, 5, 0, Math.PI * 2);
+        overlayContext.fill();
+        overlayContext.stroke();
+      }
+    }
+
+    function objectPointsForBoard() {
+      const settings = boardSettings();
+      const data = [];
+      for (let row = 0; row < settings.innerRows; row += 1) {
+        for (let col = 0; col < settings.innerCols; col += 1) {
+          data.push(col * settings.squareSizeMm, row * settings.squareSizeMm, 0);
+        }
+      }
+      return cv.matFromArray(settings.innerCols * settings.innerRows, 1, cv.CV_32FC3, data);
+    }
+
+    function captureFrame() {
+      if (!lastCorners || !lastGray) {
+        setStatus("No checkerboard found in the current frame.", "warn");
+        return;
+      }
+      objectPointSets.push(objectPointsForBoard());
+      imagePointSets.push(lastCorners.clone());
+      setStatus(`Captured view ${imagePointSets.length}.`);
+      updateMetrics();
+    }
+
+    function runCalibration() {
+      if (!cvReady || imagePointSets.length < 6) {
+        setStatus("Capture at least 6 checkerboard views before calibrating.", "warn");
+        return;
+      }
+      const objectPoints = new cv.MatVector();
+      const imagePoints = new cv.MatVector();
+      const cameraMatrix = new cv.Mat();
+      const distCoeffs = new cv.Mat();
+      const rvecs = new cv.MatVector();
+      const tvecs = new cv.MatVector();
+      try {
+        objectPointSets.forEach((mat) => objectPoints.push_back(mat));
+        imagePointSets.forEach((mat) => imagePoints.push_back(mat));
+        const reprojection = cv.calibrateCamera(
+          objectPoints,
+          imagePoints,
+          new cv.Size(frameCanvas.width, frameCanvas.height),
+          cameraMatrix,
+          distCoeffs,
+          rvecs,
+          tvecs
+        );
+        const settings = boardSettings();
+        const trackSettings = activeTrack && typeof activeTrack.getSettings === "function" ? activeTrack.getSettings() : {};
+        lastCalibration = {
+          type: "opencv-camera-calibration",
+          version: 1,
+          createdAt: new Date().toISOString(),
+          deviceId: cameraDeviceSelect.value || trackSettings.deviceId || "",
+          cameraLabel: activeTrack && activeTrack.label ? activeTrack.label : "",
+          frameSize: { width: frameCanvas.width, height: frameCanvas.height },
+          board: {
+            innerCols: settings.innerCols,
+            innerRows: settings.innerRows,
+            squareSizeMm: settings.squareSizeMm
+          },
+          captureCount: imagePointSets.length,
+          reprojectionError: reprojection,
+          cameraMatrix: Array.from(cameraMatrix.data64F),
+          distCoeffs: Array.from(distCoeffs.data64F)
+        };
+        document.getElementById("calibration-json").value = JSON.stringify(lastCalibration, null, 2);
+        document.getElementById("reprojection").textContent = reprojection.toFixed(4);
+        saveCalibration();
+        setStatus("Calibration complete and saved.");
+      } catch (error) {
+        setStatus(error && error.message ? error.message : "Calibration failed.", "error");
+      } finally {
+        objectPoints.delete();
+        imagePoints.delete();
+        cameraMatrix.delete();
+        distCoeffs.delete();
+        rvecs.delete();
+        tvecs.delete();
+      }
+    }
+
+    function calibrationKey(calibration) {
+      return `${calibration.deviceId || "auto"}|${calibration.frameSize.width}x${calibration.frameSize.height}`;
+    }
+
+    function allCalibrations() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_CALIBRATIONS) || "{}");
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function saveCalibration() {
+      try {
+        const calibration = lastCalibration || JSON.parse(document.getElementById("calibration-json").value);
+        if (!calibration.cameraMatrix || !calibration.distCoeffs || !calibration.frameSize) {
+          throw new Error("invalid calibration");
+        }
+        const calibrations = allCalibrations();
+        calibrations[calibrationKey(calibration)] = calibration;
+        localStorage.setItem(STORAGE_CALIBRATIONS, JSON.stringify(calibrations));
+        lastCalibration = calibration;
+        document.getElementById("calibration-json").value = JSON.stringify(calibration, null, 2);
+        setStatus("Calibration saved.");
+      } catch (error) {
+        setStatus("Calibration JSON is invalid.", "error");
+      }
+    }
+
+    function importCalibration() {
+      lastCalibration = null;
+      saveCalibration();
+    }
+
+    function clearCalibration() {
+      const text = document.getElementById("calibration-json").value;
+      try {
+        const calibration = text ? JSON.parse(text) : lastCalibration;
+        if (!calibration) {
+          return;
+        }
+        const calibrations = allCalibrations();
+        delete calibrations[calibrationKey(calibration)];
+        localStorage.setItem(STORAGE_CALIBRATIONS, JSON.stringify(calibrations));
+        lastCalibration = null;
+        document.getElementById("calibration-json").value = "";
+        document.getElementById("reprojection").textContent = "-";
+        setStatus("Calibration cleared.");
+      } catch (error) {
+        setStatus("Calibration JSON is invalid.", "error");
+      }
+    }
+
+    function resetCaptures() {
+      objectPointSets.forEach((mat) => mat.delete());
+      imagePointSets.forEach((mat) => mat.delete());
+      objectPointSets = [];
+      imagePointSets = [];
+      document.getElementById("reprojection").textContent = "-";
+      updateMetrics();
+      setStatus("Captured views reset.");
+    }
+
+    function updateMetrics() {
+      const settings = boardSettings();
+      document.getElementById("capture-count").textContent = `${imagePointSets.length} / ${settings.targetCaptures}`;
+      document.getElementById("video-size").textContent = `${video.videoWidth || 0} x ${video.videoHeight || 0}`;
+    }
+
+    function renderCheckerboard() {
+      const settings = boardSettings();
+      const board = document.getElementById("checkerboard");
+      const squaresX = settings.innerCols + 1;
+      const squaresY = settings.innerRows + 1;
+      const size = `${settings.squareSizeMm}mm`;
+      board.style.gridTemplateColumns = `repeat(${squaresX}, ${size})`;
+      board.style.gridTemplateRows = `repeat(${squaresY}, ${size})`;
+      board.innerHTML = "";
+      for (let row = 0; row < squaresY; row += 1) {
+        for (let col = 0; col < squaresX; col += 1) {
+          const square = document.createElement("div");
+          square.className = `square ${(row + col) % 2 === 0 ? "black" : "white"}`;
+          square.style.width = size;
+          square.style.height = size;
+          board.appendChild(square);
+        }
+      }
+    }
+
+    loadSettings();
+    renderCheckerboard();
+    refreshCameraDevices();
+    updateMetrics();
+
+    document.getElementById("start-camera").addEventListener("click", startCamera);
+    document.getElementById("stop-camera").addEventListener("click", () => {
+      stopCamera();
+      setStatus("Camera stopped.");
+    });
+    document.getElementById("refresh-cameras").addEventListener("click", async () => {
+      await refreshCameraDevices();
+      setStatus("Camera list refreshed.");
+    });
+    document.getElementById("capture-frame").addEventListener("click", captureFrame);
+    document.getElementById("run-calibration").addEventListener("click", runCalibration);
+    document.getElementById("reset-captures").addEventListener("click", resetCaptures);
+    document.getElementById("save-calibration").addEventListener("click", saveCalibration);
+    document.getElementById("import-calibration").addEventListener("click", importCalibration);
+    document.getElementById("clear-calibration").addEventListener("click", clearCalibration);
+    document.getElementById("print-pattern").addEventListener("click", () => window.print());
+    cameraDeviceSelect.addEventListener("change", (event) => {
+      localStorage.setItem(STORAGE_CAMERA, event.target.value);
+      if (stream) {
+        startCamera();
+      }
+    });
+    ["facing-mode", "resolution"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", () => {
+        if (stream) {
+          startCamera();
+        }
+      });
+    });
+    ["inner-cols", "inner-rows", "square-size", "target-captures"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", saveSettings);
+    });
+
+    if (!pageHasCameraAccessChance()) {
+      setStatus("Camera access on phones requires HTTPS or localhost.", "warn");
+    }
+  </script>
+  <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvLoaded()"></script>
+</body>
+</html>

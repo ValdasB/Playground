@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111820">
+  <title>AprilTag Plane Alignment</title>
+  <style>
+    :root {
+      --bg: #111820;
+      --panel: #182530;
+      --panel-2: #223643;
+      --ink: #f7f2e8;
+      --muted: #c5d0ce;
+      --accent: #d9822b;
+      --good: #5df2a3;
+      --warn: #ffd166;
+      --bad: #ff6b6b;
+      --border: #405765;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Trebuchet MS", Verdana, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: minmax(300px, 58dvh) auto;
+      background: linear-gradient(180deg, #0b1117 0, var(--bg) 100%);
+    }
+
+    .stage {
+      position: relative;
+      overflow: hidden;
+      background: #05080b;
+    }
+
+    video,
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .hud {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      pointer-events: none;
+    }
+
+    .pill {
+      min-width: 92px;
+      padding: 7px 9px;
+      border: 1px solid rgba(247, 242, 232, 0.18);
+      border-radius: 8px;
+      background: rgba(5, 8, 11, 0.76);
+      color: var(--ink);
+      font-size: 0.84rem;
+      line-height: 1.15;
+      backdrop-filter: blur(6px);
+    }
+
+    .pill span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .pill strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 1rem;
+    }
+
+    .controls {
+      border-top: 1px solid var(--border);
+      background: var(--panel);
+      padding: 14px 14px 24px;
+    }
+
+    .head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .status {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-align: right;
+    }
+
+    a { color: var(--ink); }
+
+    button,
+    select,
+    input,
+    textarea {
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font: inherit;
+    }
+
+    button {
+      padding: 7px 11px;
+      border-color: transparent;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      border-color: var(--border);
+      background: var(--panel-2);
+      color: var(--ink);
+    }
+
+    select,
+    input,
+    textarea {
+      width: 100%;
+      padding: 7px 9px;
+      background: #f7f1e4;
+      color: #15191b;
+    }
+
+    textarea {
+      min-height: 82px;
+      resize: vertical;
+    }
+
+    .toolbar,
+    .form-grid,
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .form-grid {
+      grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+      gap: 10px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .metric,
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(5, 8, 11, 0.28);
+      padding: 10px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 1.08rem;
+    }
+
+    .panel {
+      margin-top: 12px;
+      overflow: auto;
+    }
+
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+      font-size: 0.9rem;
+    }
+
+    th,
+    td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(247, 242, 232, 0.12);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .badge {
+      display: inline-block;
+      min-width: 58px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      color: #06100b;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .badge.good { background: var(--good); }
+    .badge.warn { background: var(--warn); }
+    .badge.bad { background: var(--bad); color: white; }
+    .badge.neutral { background: var(--muted); }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 0.65fr);
+      gap: 12px;
+    }
+
+    @media (max-width: 760px) {
+      .app {
+        grid-template-rows: minmax(280px, 48dvh) auto;
+      }
+
+      .head,
+      .two-col {
+        display: grid;
+      }
+
+      .status {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="stage" aria-label="Camera preview">
+      <video id="camera" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="hud" aria-live="polite">
+        <div class="pill"><span>Tags</span><strong id="hud-tags">0</strong></div>
+        <div class="pill"><span>Aligned</span><strong id="hud-aligned">0</strong></div>
+        <div class="pill"><span>Worst Tilt</span><strong id="hud-worst">0.0 deg</strong></div>
+        <div class="pill"><span>FPS</span><strong id="hud-fps">0.0</strong></div>
+      </div>
+    </section>
+
+    <section class="controls">
+      <div class="head">
+        <h1>AprilTag Plane Alignment</h1>
+        <div id="status" class="status">Loading libraries...</div>
+      </div>
+
+      <div class="toolbar">
+        <button id="start-camera" type="button">Start Camera</button>
+        <button id="stop-camera" class="secondary" type="button">Stop Camera</button>
+        <button id="refresh-cameras" class="secondary" type="button">Refresh Cameras</button>
+        <button id="fullscreen" class="secondary" type="button">Fullscreen</button>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Camera
+          <select id="camera-device">
+            <option value="">Auto rear camera</option>
+          </select>
+        </label>
+        <label>
+          Facing
+          <select id="facing-mode">
+            <option value="environment">Rear</option>
+            <option value="user">Front</option>
+          </select>
+        </label>
+        <label>
+          Requested Resolution
+          <select id="resolution">
+            <option value="1920x1080">1920 x 1080</option>
+            <option value="1280x720" selected>1280 x 720</option>
+            <option value="960x540">960 x 540</option>
+            <option value="640x480">640 x 480</option>
+          </select>
+        </label>
+        <label>
+          Detection Width
+          <select id="scan-width">
+            <option value="640">640 px</option>
+            <option value="960" selected>960 px</option>
+            <option value="1280">1280 px</option>
+            <option value="source">Source</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Tag Size (mm)
+          <input id="tag-size" type="number" min="1" step="0.1" value="80">
+        </label>
+        <label>
+          Reference Tag
+          <select id="reference-tag">
+            <option value="">First visible tag</option>
+          </select>
+        </label>
+        <label>
+          Angle Tolerance (deg)
+          <input id="angle-tolerance" type="number" min="0" step="0.1" value="2">
+        </label>
+        <label>
+          Plane Offset Tolerance (mm)
+          <input id="offset-tolerance" type="number" min="0" step="0.1" value="5">
+        </label>
+      </div>
+
+      <div class="metrics" aria-live="polite">
+        <div class="metric"><span>Calibration</span><strong id="calibration-state">Missing</strong></div>
+        <div class="metric"><span>Video Size</span><strong id="video-size">0 x 0</strong></div>
+        <div class="metric"><span>Frames Scanned</span><strong id="frames">0</strong></div>
+        <div class="metric"><span>Detect Time</span><strong id="last-ms">0.0 ms</strong></div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <h2>Alignment</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Plane Angle</th>
+                <th>Plane Offset</th>
+                <th>Yaw</th>
+                <th>Pitch</th>
+                <th>Roll</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody id="alignment-body">
+              <tr><td colspan="8">No tags detected yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <h2>Calibration Data</h2>
+          <p id="calibration-note">Create calibration in <a href="camera-calibration.html">Camera Calibration</a>, or import JSON here.</p>
+          <textarea id="calibration-json" spellcheck="false" placeholder="Paste exported calibration JSON"></textarea>
+          <div class="toolbar" style="margin: 8px 0 0;">
+            <button id="import-calibration" type="button">Import</button>
+            <button id="export-calibration" class="secondary" type="button">Export</button>
+            <button id="clear-calibration" class="secondary" type="button">Clear</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const APRILTAG_WASM_JS = "https://cdn.jsdelivr.net/gh/arenaxr/apriltag-js-standalone@master/html/apriltag_wasm.js";
+    const APRILTAG_WASM_FILE = "https://cdn.jsdelivr.net/gh/arenaxr/apriltag-js-standalone@master/html/apriltag_wasm.wasm";
+    const STORAGE_CAMERA = "apriltag_alignment_camera_device";
+    const STORAGE_SETTINGS = "apriltag_alignment_settings";
+    const STORAGE_CALIBRATIONS = "camera_calibrations_v1";
+
+    const workerSource = `
+      const APRILTAG_WASM_JS = ${JSON.stringify(APRILTAG_WASM_JS)};
+      const APRILTAG_WASM_FILE = ${JSON.stringify(APRILTAG_WASM_FILE)};
+      let detector = null;
+
+      importScripts(APRILTAG_WASM_JS);
+
+      class AprilTagDetector {
+        async init() {
+          this.module = await AprilTagWasm({
+            locateFile(path) {
+              return path.endsWith(".wasm") ? APRILTAG_WASM_FILE : path;
+            }
+          });
+          this.initDetector = this.module.cwrap("atagjs_init", "number", []);
+          this.setDetectorOptions = this.module.cwrap("atagjs_set_detector_options", "number", ["number", "number", "number", "number", "number", "number", "number"]);
+          this.setImageBuffer = this.module.cwrap("atagjs_set_img_buffer", "number", ["number", "number", "number"]);
+          this.detectTags = this.module.cwrap("atagjs_detect", "number", []);
+          this.initDetector();
+          this.setDetectorOptions(2.0, 0.0, 1, 1, 0, 0, 0);
+        }
+
+        detect(grayscale, width, height) {
+          const imgBuffer = this.setImageBuffer(width, height, width);
+          this.module.HEAPU8.set(grayscale, imgBuffer);
+          const strJsonPtr = this.detectTags();
+          const strJsonLen = this.module.getValue(strJsonPtr, "i32");
+          if (!strJsonLen) {
+            return [];
+          }
+          const strJsonStrPtr = this.module.getValue(strJsonPtr + 4, "i32");
+          const view = new Uint8Array(this.module.HEAP8.buffer, strJsonStrPtr, strJsonLen);
+          let json = "";
+          for (let i = 0; i < strJsonLen; i += 1) {
+            json += String.fromCharCode(view[i]);
+          }
+          return JSON.parse(json);
+        }
+      }
+
+      AprilTagDetector.create = async function create() {
+        const instance = new AprilTagDetector();
+        await instance.init();
+        return instance;
+      };
+
+      AprilTagDetector.create()
+        .then((instance) => {
+          detector = instance;
+          postMessage({ type: "ready" });
+        })
+        .catch((error) => {
+          postMessage({ type: "error", message: error && error.message ? error.message : String(error) });
+        });
+
+      onmessage = (event) => {
+        if (!detector || event.data.type !== "detect") {
+          return;
+        }
+
+        const started = performance.now();
+        try {
+          const detections = detector.detect(new Uint8Array(event.data.buffer), event.data.width, event.data.height);
+          postMessage({
+            type: "result",
+            detections,
+            width: event.data.width,
+            height: event.data.height,
+            elapsedMs: performance.now() - started
+          });
+        } catch (error) {
+          postMessage({ type: "error", message: error && error.message ? error.message : String(error) });
+        }
+      };
+    `;
+
+    const video = document.getElementById("camera");
+    const overlay = document.getElementById("overlay");
+    const overlayContext = overlay.getContext("2d");
+    const scanCanvas = document.createElement("canvas");
+    const scanContext = scanCanvas.getContext("2d", { willReadFrequently: true });
+    const statusNode = document.getElementById("status");
+    const cameraDeviceSelect = document.getElementById("camera-device");
+    const referenceTagSelect = document.getElementById("reference-tag");
+
+    let stream = null;
+    let activeTrack = null;
+    let detectorWorker = null;
+    let detectorReady = false;
+    let cvReady = false;
+    let animationFrame = 0;
+    let detectionPending = false;
+    let cameraDevices = [];
+    let activeCalibration = null;
+    let lastDetections = [];
+    let lastResults = [];
+    let lastDetectionSize = { width: 1, height: 1 };
+    let knownTagIds = new Set();
+    let stats = {
+      scanned: 0,
+      totalMs: 0,
+      lastMs: 0,
+      startedAt: 0,
+      previewFrames: 0
+    };
+
+    function onOpenCvLoaded() {
+      cv.onRuntimeInitialized = () => {
+        cvReady = true;
+        updateCalibrationState();
+        setStatus(detectorReady ? "Ready. Start the camera." : "OpenCV ready. Loading detector.");
+      };
+    }
+
+    window.onOpenCvLoaded = onOpenCvLoaded;
+
+    function setStatus(text, kind = "ready") {
+      statusNode.textContent = text;
+      statusNode.style.color = kind === "error" ? "var(--bad)" : kind === "warn" ? "var(--warn)" : "var(--muted)";
+    }
+
+    function cameraApiAvailable() {
+      return Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function pageHasCameraAccessChance() {
+      return window.isSecureContext || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    }
+
+    function parseResolution() {
+      const [width, height] = document.getElementById("resolution").value.split("x").map(Number);
+      return { width, height };
+    }
+
+    function desiredScanSize() {
+      const sourceWidth = video.videoWidth || 1;
+      const sourceHeight = video.videoHeight || 1;
+      const setting = document.getElementById("scan-width").value;
+      if (setting === "source") {
+        return { width: sourceWidth, height: sourceHeight };
+      }
+      const width = Math.min(Number(setting), sourceWidth);
+      const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth));
+      return { width, height };
+    }
+
+    function readSettings() {
+      return {
+        tagSizeMm: Number(document.getElementById("tag-size").value) || 0,
+        referenceTag: referenceTagSelect.value,
+        angleTolerance: Number(document.getElementById("angle-tolerance").value) || 0,
+        offsetTolerance: Number(document.getElementById("offset-tolerance").value) || 0
+      };
+    }
+
+    function saveSettings() {
+      localStorage.setItem(STORAGE_SETTINGS, JSON.stringify(readSettings()));
+      renderAlignment();
+    }
+
+    function loadSettings() {
+      try {
+        const settings = JSON.parse(localStorage.getItem(STORAGE_SETTINGS) || "{}");
+        if (settings.tagSizeMm) {
+          document.getElementById("tag-size").value = settings.tagSizeMm;
+        }
+        if (settings.angleTolerance != null) {
+          document.getElementById("angle-tolerance").value = settings.angleTolerance;
+        }
+        if (settings.offsetTolerance != null) {
+          document.getElementById("offset-tolerance").value = settings.offsetTolerance;
+        }
+        if (settings.referenceTag) {
+          const option = document.createElement("option");
+          option.value = settings.referenceTag;
+          option.textContent = `ID ${settings.referenceTag}`;
+          option.selected = true;
+          referenceTagSelect.appendChild(option);
+        }
+      } catch (error) {
+        localStorage.removeItem(STORAGE_SETTINGS);
+      }
+    }
+
+    function allCalibrations() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_CALIBRATIONS) || "{}");
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function calibrationKey(deviceId, width, height) {
+      return `${deviceId || "auto"}|${width}x${height}`;
+    }
+
+    function findCalibration() {
+      const calibrations = allCalibrations();
+      const settings = activeTrack && typeof activeTrack.getSettings === "function" ? activeTrack.getSettings() : {};
+      const selectedDeviceId = cameraDeviceSelect.value || settings.deviceId || "";
+      const width = video.videoWidth || settings.width || 0;
+      const height = video.videoHeight || settings.height || 0;
+      const exact = calibrations[calibrationKey(selectedDeviceId, width, height)];
+      if (exact) {
+        return exact;
+      }
+      return Object.values(calibrations).find((item) => item.deviceId === selectedDeviceId) || null;
+    }
+
+    function updateCalibrationState() {
+      activeCalibration = findCalibration();
+      const node = document.getElementById("calibration-state");
+      if (!cvReady) {
+        node.textContent = "OpenCV loading";
+      } else if (activeCalibration) {
+        node.textContent = `${activeCalibration.frameSize.width} x ${activeCalibration.frameSize.height}`;
+      } else {
+        node.textContent = "Missing";
+      }
+      document.getElementById("calibration-json").value = activeCalibration ? JSON.stringify(activeCalibration, null, 2) : "";
+    }
+
+    async function refreshCameraDevices() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return;
+      }
+
+      const selected = localStorage.getItem(STORAGE_CAMERA) || "";
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      cameraDevices = devices.filter((device) => device.kind === "videoinput");
+      cameraDeviceSelect.innerHTML = `<option value="">Auto rear camera</option>`;
+      cameraDevices.forEach((device, index) => {
+        const option = document.createElement("option");
+        option.value = device.deviceId;
+        option.textContent = device.label || `Camera ${index + 1}`;
+        option.selected = device.deviceId === selected;
+        cameraDeviceSelect.appendChild(option);
+      });
+    }
+
+    function createDetectorWorker() {
+      const blob = new Blob([workerSource], { type: "application/javascript" });
+      detectorWorker = new Worker(URL.createObjectURL(blob));
+      detectorWorker.onmessage = (event) => {
+        if (event.data.type === "ready") {
+          detectorReady = true;
+          setStatus(cvReady ? "Ready. Start the camera." : "Detector ready. Loading OpenCV.");
+          return;
+        }
+        if (event.data.type === "error") {
+          detectionPending = false;
+          setStatus(event.data.message || "Detector error.", "error");
+          return;
+        }
+        if (event.data.type === "result") {
+          detectionPending = false;
+          lastDetections = event.data.detections || [];
+          lastDetectionSize = { width: event.data.width, height: event.data.height };
+          stats.scanned += 1;
+          stats.totalMs += event.data.elapsedMs;
+          stats.lastMs = event.data.elapsedMs;
+          updateReferenceOptions(lastDetections);
+          renderAlignment();
+          updateMetrics();
+        }
+      };
+    }
+
+    async function startCamera() {
+      await stopCamera();
+      if (!cameraApiAvailable()) {
+        setStatus("Camera API is not available in this browser.", "error");
+        return;
+      }
+      if (!pageHasCameraAccessChance()) {
+        setStatus("Camera access requires HTTPS or localhost.", "error");
+        return;
+      }
+      if (!detectorReady || !cvReady) {
+        setStatus("Libraries are still loading.", "warn");
+        return;
+      }
+
+      const selectedDeviceId = cameraDeviceSelect.value;
+      const facingMode = document.getElementById("facing-mode").value;
+      const resolution = parseResolution();
+      const preferredVideo = selectedDeviceId
+        ? { deviceId: { exact: selectedDeviceId }, width: { ideal: resolution.width }, height: { ideal: resolution.height } }
+        : { facingMode: { ideal: facingMode }, width: { ideal: resolution.width }, height: { ideal: resolution.height } };
+      const attempts = [
+        { video: preferredVideo, audio: false },
+        { video: { facingMode, width: { ideal: resolution.width }, height: { ideal: resolution.height } }, audio: false },
+        { video: true, audio: false }
+      ];
+
+      try {
+        let lastError = null;
+        for (const constraints of attempts) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            break;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        if (!stream) {
+          throw lastError || new Error("camera access failed");
+        }
+
+        video.srcObject = stream;
+        activeTrack = stream.getVideoTracks()[0] || null;
+        await video.play();
+        await refreshCameraDevices();
+        updateCalibrationState();
+        stats = { scanned: 0, totalMs: 0, lastMs: 0, startedAt: performance.now(), previewFrames: 0 };
+        setStatus(activeCalibration ? "Camera started." : "Camera started. Calibration is missing.", activeCalibration ? "ready" : "warn");
+        animationFrame = requestAnimationFrame(scanLoop);
+      } catch (error) {
+        setStatus(error && error.name ? `${error.name}: ${error.message || "camera access failed"}` : "camera access failed", "error");
+      }
+    }
+
+    async function stopCamera() {
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = 0;
+      }
+      detectionPending = false;
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      stream = null;
+      activeTrack = null;
+      video.srcObject = null;
+      lastDetections = [];
+      lastResults = [];
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      renderAlignment();
+      updateMetrics();
+    }
+
+    function scanLoop() {
+      animationFrame = requestAnimationFrame(scanLoop);
+      stats.previewFrames += 1;
+      if (!video.videoWidth || !video.videoHeight) {
+        return;
+      }
+      if (overlay.width !== video.videoWidth || overlay.height !== video.videoHeight) {
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+        updateCalibrationState();
+      }
+      if (detectionPending || !detectorReady) {
+        return;
+      }
+
+      const size = desiredScanSize();
+      if (scanCanvas.width !== size.width || scanCanvas.height !== size.height) {
+        scanCanvas.width = size.width;
+        scanCanvas.height = size.height;
+      }
+      scanContext.drawImage(video, 0, 0, size.width, size.height);
+      const rgba = scanContext.getImageData(0, 0, size.width, size.height).data;
+      const grayscale = new Uint8Array(size.width * size.height);
+      for (let i = 0, j = 0; i < rgba.length; i += 4, j += 1) {
+        grayscale[j] = Math.round((rgba[i] + rgba[i + 1] + rgba[i + 2]) / 3);
+      }
+      detectionPending = true;
+      detectorWorker.postMessage({ type: "detect", buffer: grayscale.buffer, width: size.width, height: size.height }, [grayscale.buffer]);
+    }
+
+    function updateReferenceOptions(detections) {
+      let changed = false;
+      detections.forEach((tag) => {
+        const id = String(tag.id);
+        if (knownTagIds.has(id)) {
+          return;
+        }
+        knownTagIds.add(id);
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = `ID ${id}`;
+        referenceTagSelect.appendChild(option);
+        changed = true;
+      });
+      if (changed) {
+        const saved = readSettings().referenceTag;
+        if (saved) {
+          referenceTagSelect.value = saved;
+        }
+      }
+    }
+
+    function matFromArray(rows, cols, type, data) {
+      return cv.matFromArray(rows, cols, type, data);
+    }
+
+    function cameraMatrixFor(calibration, scaleX, scaleY) {
+      const m = calibration.cameraMatrix;
+      return matFromArray(3, 3, cv.CV_64F, [
+        m[0] * scaleX, m[1], m[2] * scaleX,
+        m[3], m[4] * scaleY, m[5] * scaleY,
+        m[6], m[7], m[8]
+      ]);
+    }
+
+    function distCoeffsFor(calibration) {
+      return matFromArray(calibration.distCoeffs.length, 1, cv.CV_64F, calibration.distCoeffs);
+    }
+
+    function poseForTag(tag, calibration, tagSizeMm) {
+      const corners = tag.corners || [];
+      if (corners.length < 4 || !tagSizeMm) {
+        return null;
+      }
+
+      const scaleX = lastDetectionSize.width / calibration.frameSize.width;
+      const scaleY = lastDetectionSize.height / calibration.frameSize.height;
+      const half = tagSizeMm / 2;
+      const objectPoints = matFromArray(4, 1, cv.CV_64FC3, [
+        -half, -half, 0,
+        half, -half, 0,
+        half, half, 0,
+        -half, half, 0
+      ]);
+      const imagePoints = matFromArray(4, 1, cv.CV_64FC2, [
+        corners[0].x, corners[0].y,
+        corners[1].x, corners[1].y,
+        corners[2].x, corners[2].y,
+        corners[3].x, corners[3].y
+      ]);
+      const cameraMatrix = cameraMatrixFor(calibration, scaleX, scaleY);
+      const distCoeffs = distCoeffsFor(calibration);
+      const rvec = new cv.Mat();
+      const tvec = new cv.Mat();
+      const rotation = new cv.Mat();
+      let projected = null;
+
+      try {
+        const method = cv.SOLVEPNP_IPPE_SQUARE == null ? cv.SOLVEPNP_ITERATIVE : cv.SOLVEPNP_IPPE_SQUARE;
+        const ok = cv.solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs, rvec, tvec, false, method);
+        if (!ok) {
+          return null;
+        }
+        cv.Rodrigues(rvec, rotation);
+        projected = projectAxes(tagSizeMm, cameraMatrix, distCoeffs, rvec, tvec);
+        return {
+          id: String(tag.id),
+          tag,
+          rvec: Array.from(rvec.data64F),
+          tvec: Array.from(tvec.data64F),
+          rotation: Array.from(rotation.data64F),
+          axes: projected
+        };
+      } finally {
+        objectPoints.delete();
+        imagePoints.delete();
+        cameraMatrix.delete();
+        distCoeffs.delete();
+        rvec.delete();
+        tvec.delete();
+        rotation.delete();
+      }
+    }
+
+    function projectAxes(tagSizeMm, cameraMatrix, distCoeffs, rvec, tvec) {
+      const axis = tagSizeMm * 0.65;
+      const points = matFromArray(4, 1, cv.CV_64FC3, [
+        0, 0, 0,
+        axis, 0, 0,
+        0, axis, 0,
+        0, 0, -axis
+      ]);
+      const image = new cv.Mat();
+      try {
+        cv.projectPoints(points, rvec, tvec, cameraMatrix, distCoeffs, image);
+        const data = Array.from(image.data64F);
+        return [
+          { x: data[0], y: data[1] },
+          { x: data[2], y: data[3] },
+          { x: data[4], y: data[5] },
+          { x: data[6], y: data[7] }
+        ];
+      } finally {
+        points.delete();
+        image.delete();
+      }
+    }
+
+    function normalFromRotation(rotation) {
+      return [rotation[2], rotation[5], rotation[8]];
+    }
+
+    function dot(a, b) {
+      return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+
+    function subtract(a, b) {
+      return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function radiansToDegrees(value) {
+      return value * 180 / Math.PI;
+    }
+
+    function transpose3(m) {
+      return [
+        m[0], m[3], m[6],
+        m[1], m[4], m[7],
+        m[2], m[5], m[8]
+      ];
+    }
+
+    function multiply3(a, b) {
+      return [
+        a[0] * b[0] + a[1] * b[3] + a[2] * b[6],
+        a[0] * b[1] + a[1] * b[4] + a[2] * b[7],
+        a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+        a[3] * b[0] + a[4] * b[3] + a[5] * b[6],
+        a[3] * b[1] + a[4] * b[4] + a[5] * b[7],
+        a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+        a[6] * b[0] + a[7] * b[3] + a[8] * b[6],
+        a[6] * b[1] + a[7] * b[4] + a[8] * b[7],
+        a[6] * b[2] + a[7] * b[5] + a[8] * b[8]
+      ];
+    }
+
+    function eulerFromRotation(m) {
+      const sy = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
+      const singular = sy < 1e-6;
+      const x = singular ? Math.atan2(-m[5], m[4]) : Math.atan2(m[7], m[8]);
+      const y = Math.atan2(-m[6], sy);
+      const z = singular ? 0 : Math.atan2(m[3], m[0]);
+      return {
+        pitch: radiansToDegrees(x),
+        yaw: radiansToDegrees(y),
+        roll: radiansToDegrees(z)
+      };
+    }
+
+    function resultStatus(result, settings) {
+      if (result.isReference) {
+        return "REF";
+      }
+      if (result.planeAngle <= settings.angleTolerance && Math.abs(result.planeOffset) <= settings.offsetTolerance) {
+        return "PASS";
+      }
+      return "FAIL";
+    }
+
+    function computeResults() {
+      const settings = readSettings();
+      if (!activeCalibration || !cvReady || !settings.tagSizeMm) {
+        return [];
+      }
+      const poses = lastDetections
+        .map((tag) => poseForTag(tag, activeCalibration, settings.tagSizeMm))
+        .filter(Boolean);
+      if (!poses.length) {
+        return [];
+      }
+      const refId = settings.referenceTag || poses[0].id;
+      const reference = poses.find((pose) => pose.id === refId) || poses[0];
+      const refNormal = normalFromRotation(reference.rotation);
+
+      return poses.map((pose) => {
+        const normal = normalFromRotation(pose.rotation);
+        const relativeRotation = multiply3(transpose3(reference.rotation), pose.rotation);
+        const euler = eulerFromRotation(relativeRotation);
+        const angle = radiansToDegrees(Math.acos(clamp(Math.abs(dot(refNormal, normal)), -1, 1)));
+        const offset = dot(subtract(pose.tvec, reference.tvec), refNormal);
+        return {
+          ...pose,
+          isReference: pose.id === reference.id,
+          planeAngle: pose.id === reference.id ? 0 : angle,
+          planeOffset: pose.id === reference.id ? 0 : offset,
+          yaw: pose.id === reference.id ? 0 : euler.yaw,
+          pitch: pose.id === reference.id ? 0 : euler.pitch,
+          roll: pose.id === reference.id ? 0 : euler.roll,
+          lastSeen: Date.now()
+        };
+      });
+    }
+
+    function renderAlignment() {
+      lastResults = computeResults();
+      drawOverlay();
+      const settings = readSettings();
+      const body = document.getElementById("alignment-body");
+      if (!lastDetections.length) {
+        body.innerHTML = `<tr><td colspan="8">No tags detected yet.</td></tr>`;
+        return;
+      }
+      if (!activeCalibration) {
+        body.innerHTML = `<tr><td colspan="8">No calibration for this camera/resolution. Open Camera Calibration or import calibration JSON.</td></tr>`;
+        return;
+      }
+      if (!settings.tagSizeMm) {
+        body.innerHTML = `<tr><td colspan="8">Enter tag size to estimate pose.</td></tr>`;
+        return;
+      }
+      if (!lastResults.length) {
+        body.innerHTML = `<tr><td colspan="8">Tags detected, but pose estimation failed.</td></tr>`;
+        return;
+      }
+      body.innerHTML = lastResults.map((result) => {
+        const status = resultStatus(result, settings);
+        const badgeClass = status === "PASS" || status === "REF" ? "good" : "bad";
+        return `
+          <tr>
+            <td>${result.id}</td>
+            <td><span class="badge ${badgeClass}">${status}</span></td>
+            <td>${result.planeAngle.toFixed(2)} deg</td>
+            <td>${result.planeOffset.toFixed(1)} mm</td>
+            <td>${result.yaw.toFixed(2)} deg</td>
+            <td>${result.pitch.toFixed(2)} deg</td>
+            <td>${result.roll.toFixed(2)} deg</td>
+            <td>${new Date(result.lastSeen).toLocaleTimeString()}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function drawOverlay() {
+      if (!overlay.width || !overlay.height) {
+        return;
+      }
+      overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+      const scaleX = overlay.width / lastDetectionSize.width;
+      const scaleY = overlay.height / lastDetectionSize.height;
+      const settings = readSettings();
+      const resultById = new Map(lastResults.map((result) => [result.id, result]));
+
+      overlayContext.lineWidth = Math.max(3, overlay.width / 390);
+      overlayContext.font = `700 ${Math.max(18, Math.round(overlay.width / 38))}px Trebuchet MS`;
+      overlayContext.textAlign = "center";
+      overlayContext.textBaseline = "middle";
+
+      lastDetections.forEach((tag) => {
+        const corners = tag.corners || [];
+        if (corners.length < 4) {
+          return;
+        }
+        const result = resultById.get(String(tag.id));
+        const status = result ? resultStatus(result, settings) : "MISS";
+        const color = status === "FAIL" ? "#ff6b6b" : status === "REF" ? "#ffd166" : "#5df2a3";
+
+        overlayContext.strokeStyle = color;
+        overlayContext.beginPath();
+        overlayContext.moveTo(corners[0].x * scaleX, corners[0].y * scaleY);
+        for (let i = 1; i < corners.length; i += 1) {
+          overlayContext.lineTo(corners[i].x * scaleX, corners[i].y * scaleY);
+        }
+        overlayContext.closePath();
+        overlayContext.stroke();
+
+        if (result && result.axes) {
+          drawAxis(result.axes, scaleX, scaleY);
+        }
+
+        const centerX = (tag.center ? tag.center.x : corners.reduce((sum, point) => sum + point.x, 0) / corners.length) * scaleX;
+        const centerY = (tag.center ? tag.center.y : corners.reduce((sum, point) => sum + point.y, 0) / corners.length) * scaleY;
+        const label = result ? `ID ${tag.id} ${status} ${result.planeAngle.toFixed(1)} deg` : `ID ${tag.id}`;
+        const metrics = overlayContext.measureText(label);
+        const boxWidth = metrics.width + 18;
+        const boxHeight = 34;
+        overlayContext.fillStyle = "rgba(5, 8, 11, 0.78)";
+        overlayContext.fillRect(centerX - boxWidth / 2, centerY - boxHeight / 2, boxWidth, boxHeight);
+        overlayContext.fillStyle = color;
+        overlayContext.fillText(label, centerX, centerY + 1);
+      });
+    }
+
+    function drawAxis(points, scaleX, scaleY) {
+      if (!points || points.length < 4) {
+        return;
+      }
+      const origin = { x: points[0].x * scaleX, y: points[0].y * scaleY };
+      const colors = ["#ff5c5c", "#5df2a3", "#63a7ff"];
+      for (let i = 1; i < 4; i += 1) {
+        overlayContext.strokeStyle = colors[i - 1];
+        overlayContext.beginPath();
+        overlayContext.moveTo(origin.x, origin.y);
+        overlayContext.lineTo(points[i].x * scaleX, points[i].y * scaleY);
+        overlayContext.stroke();
+      }
+    }
+
+    function updateMetrics() {
+      const elapsedSeconds = stats.startedAt ? (performance.now() - stats.startedAt) / 1000 : 0;
+      const fps = elapsedSeconds > 0 ? stats.scanned / elapsedSeconds : 0;
+      const settings = readSettings();
+      const aligned = lastResults.filter((result) => resultStatus(result, settings) !== "FAIL").length;
+      const worst = lastResults.reduce((max, result) => Math.max(max, result.planeAngle || 0), 0);
+      document.getElementById("frames").textContent = String(stats.scanned);
+      document.getElementById("last-ms").textContent = `${stats.lastMs.toFixed(1)} ms`;
+      document.getElementById("video-size").textContent = `${video.videoWidth || 0} x ${video.videoHeight || 0}`;
+      document.getElementById("hud-tags").textContent = String(lastDetections.length);
+      document.getElementById("hud-aligned").textContent = String(aligned);
+      document.getElementById("hud-worst").textContent = `${worst.toFixed(1)} deg`;
+      document.getElementById("hud-fps").textContent = fps.toFixed(1);
+    }
+
+    function importCalibration() {
+      try {
+        const calibration = JSON.parse(document.getElementById("calibration-json").value);
+        if (!calibration.cameraMatrix || !calibration.distCoeffs || !calibration.frameSize) {
+          throw new Error("invalid calibration");
+        }
+        const calibrations = allCalibrations();
+        const key = calibrationKey(calibration.deviceId || cameraDeviceSelect.value || "", calibration.frameSize.width, calibration.frameSize.height);
+        calibrations[key] = calibration;
+        localStorage.setItem(STORAGE_CALIBRATIONS, JSON.stringify(calibrations));
+        updateCalibrationState();
+        renderAlignment();
+        setStatus("Calibration imported.");
+      } catch (error) {
+        setStatus("Calibration JSON is invalid.", "error");
+      }
+    }
+
+    function exportCalibration() {
+      updateCalibrationState();
+      document.getElementById("calibration-json").value = activeCalibration ? JSON.stringify(activeCalibration, null, 2) : "";
+      setStatus(activeCalibration ? "Calibration copied into the text field." : "No calibration to export.", activeCalibration ? "ready" : "warn");
+    }
+
+    function clearCalibration() {
+      const calibrations = allCalibrations();
+      if (activeCalibration) {
+        const key = calibrationKey(activeCalibration.deviceId || "", activeCalibration.frameSize.width, activeCalibration.frameSize.height);
+        delete calibrations[key];
+        localStorage.setItem(STORAGE_CALIBRATIONS, JSON.stringify(calibrations));
+      }
+      activeCalibration = null;
+      updateCalibrationState();
+      renderAlignment();
+      setStatus("Calibration cleared.");
+    }
+
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (error) {
+        setStatus("Fullscreen is not supported by this browser.", "error");
+      }
+    }
+
+    loadSettings();
+    createDetectorWorker();
+    refreshCameraDevices();
+    updateCalibrationState();
+    renderAlignment();
+    updateMetrics();
+
+    document.getElementById("start-camera").addEventListener("click", startCamera);
+    document.getElementById("stop-camera").addEventListener("click", () => {
+      stopCamera();
+      setStatus("Camera stopped.");
+    });
+    document.getElementById("refresh-cameras").addEventListener("click", async () => {
+      await refreshCameraDevices();
+      setStatus("Camera list refreshed.");
+    });
+    document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+    document.getElementById("import-calibration").addEventListener("click", importCalibration);
+    document.getElementById("export-calibration").addEventListener("click", exportCalibration);
+    document.getElementById("clear-calibration").addEventListener("click", clearCalibration);
+    document.addEventListener("fullscreenchange", () => {
+      document.getElementById("fullscreen").textContent = document.fullscreenElement ? "Exit Fullscreen" : "Fullscreen";
+    });
+    cameraDeviceSelect.addEventListener("change", (event) => {
+      localStorage.setItem(STORAGE_CAMERA, event.target.value);
+      updateCalibrationState();
+      if (stream) {
+        startCamera();
+      }
+    });
+    ["tag-size", "angle-tolerance", "offset-tolerance", "reference-tag"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", saveSettings);
+    });
+    ["facing-mode", "resolution"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", () => {
+        if (stream) {
+          startCamera();
+        }
+      });
+    });
+
+    if (!pageHasCameraAccessChance()) {
+      setStatus("Camera access on phones requires HTTPS or localhost.", "warn");
+    }
+  </script>
+  <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvLoaded()"></script>
+</body>
+</html>

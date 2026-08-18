@@ -237,6 +237,10 @@
       z-index: 400;
     }
 
+    .leaflet-municipality-pane {
+      pointer-events: none;
+    }
+
     @media (max-width: 640px) {
       .leaflet-control-zoom {
         display: none;
@@ -294,6 +298,7 @@
   ></script>
   <script>
     const RADAR_BASE_URL = "https://www.meteo.lt/meteo_jobs/radaru_informacija/Header_Radar-composite-";
+    const MUNICIPALITIES_URL = "https://raw.githubusercontent.com/seporaitis/lt-geojson/master/geojson/municipalities.geojson";
     const FRAME_INTERVAL_MS = 5 * 60 * 1000;
     const HISTORY_MS = 2 * 60 * 60 * 1000;
     const FRAME_COUNT = Math.floor(HISTORY_MS / FRAME_INTERVAL_MS) + 1;
@@ -320,8 +325,12 @@
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors | Radar data: <a href=\"https://www.meteo.lt/\" target=\"_blank\" rel=\"noopener\">LHMT / Meteo.lt</a>"
+      attribution: "&copy; OpenStreetMap contributors | Radar data: <a href=\"https://www.meteo.lt/\" target=\"_blank\" rel=\"noopener\">LHMT / Meteo.lt</a> | Boundaries: <a href=\"https://github.com/seporaitis/lt-geojson\" target=\"_blank\" rel=\"noopener\">lt-geojson</a>"
     }).addTo(map);
+
+    const municipalityPane = map.createPane("municipalityPane");
+    municipalityPane.classList.add("leaflet-municipality-pane");
+    municipalityPane.style.zIndex = "450";
 
     map.fitBounds(MAP_BOUNDS, { padding: [16, 16] });
 
@@ -548,6 +557,30 @@
       throw new Error("No recent radar frame found");
     }
 
+    async function loadMunicipalityContours() {
+      try {
+        const response = await fetch(MUNICIPALITIES_URL, { cache: "force-cache" });
+        if (!response.ok) {
+          throw new Error(`Municipality boundaries request failed (${response.status})`);
+        }
+
+        const municipalities = await response.json();
+        L.geoJSON(municipalities, {
+          pane: "municipalityPane",
+          interactive: false,
+          filter: (feature) => ["Polygon", "MultiPolygon"].includes(feature.geometry?.type),
+          style: {
+            color: "#f7f4eb",
+            weight: 1.25,
+            opacity: 0.78,
+            fill: false
+          }
+        }).addTo(map);
+      } catch (error) {
+        console.warn("Municipality contours unavailable", error);
+      }
+    }
+
     async function refreshFrames() {
       statusEl.textContent = "Updating";
 
@@ -678,6 +711,7 @@
     updateClock();
     radarCanvasLayer = new RadarCanvasLayer();
     radarCanvasLayer.addTo(map);
+    loadMunicipalityContours();
     refreshFrames();
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && orderedFrames.length > 0) {

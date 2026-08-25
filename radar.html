@@ -304,6 +304,7 @@
     const FRAME_COUNT = Math.floor(HISTORY_MS / FRAME_INTERVAL_MS) + 1;
     const ANIMATION_MS = 2000;
     const FREEZE_MS = 1000;
+    const LOOP_FADE_MS = 650;
     const MAX_CACHED_FRAME_WIDTH = 1600;
     const MAP_BOUNDS = L.latLngBounds(
       [53.804935, 20.895534],
@@ -365,7 +366,6 @@
     let radarCanvasLayer = null;
     let animationTimer = 0;
     let animationFrameIndex = 0;
-    let animationDirection = 1;
     let activeFrameIndex = -1;
     let activeFrameTimestamp = 0;
 
@@ -375,6 +375,11 @@
         this.canvas = L.DomUtil.create("canvas", "leaflet-image-layer radar-frame");
         this.context = this.canvas.getContext("2d");
         this.image = null;
+        this.fadeFromImage = null;
+        this.fadeToImage = null;
+        this.fadeProgress = 0;
+        this.fadeAnimationFrame = 0;
+        this.fadeGeneration = 0;
         this.bounds = RADAR_IMAGE_BOUNDS;
         this.size = L.point(0, 0);
         mapInstance.getPane("overlayPane").appendChild(this.canvas);
@@ -386,12 +391,67 @@
 
       onRemove(mapInstance) {
         mapInstance.off("move zoom resize", this._reset);
+        this.cancelFade();
         L.DomUtil.remove(this.canvas);
       },
 
       setFrame(frame) {
+        this.cancelFade();
         this.image = frame.bitmap;
         this._draw();
+      },
+
+      fadeToFrame(frame, duration, onComplete) {
+        this.cancelFade();
+
+        if (!this.image || this.image === frame.bitmap) {
+          this.image = frame.bitmap;
+          this._draw();
+          onComplete();
+          return;
+        }
+
+        const generation = this.fadeGeneration;
+        let startedAt = null;
+        this.fadeFromImage = this.image;
+        this.fadeToImage = frame.bitmap;
+        this.fadeProgress = 0;
+
+        const animate = (now) => {
+          if (generation !== this.fadeGeneration) {
+            return;
+          }
+
+          if (startedAt === null) {
+            startedAt = now;
+          }
+          this.fadeProgress = Math.max(0, Math.min(1, (now - startedAt) / duration));
+          this._draw();
+
+          if (this.fadeProgress < 1) {
+            this.fadeAnimationFrame = requestAnimationFrame(animate);
+            return;
+          }
+
+          this.image = this.fadeToImage;
+          this.fadeFromImage = null;
+          this.fadeToImage = null;
+          this.fadeAnimationFrame = 0;
+          onComplete();
+        };
+
+        this.fadeAnimationFrame = requestAnimationFrame(animate);
+      },
+
+      cancelFade() {
+        this.fadeGeneration += 1;
+        if (this.fadeAnimationFrame) {
+          cancelAnimationFrame(this.fadeAnimationFrame);
+        }
+        this.fadeAnimationFrame = 0;
+        this.fadeFromImage = null;
+        this.fadeToImage = null;
+        this.fadeProgress = 0;
       },
 
       _reset() {
@@ -425,7 +485,8 @@
         const destHeight = southEast.y - northWest.y;
 
         this.context.clearRect(0, 0, size.x, size.y);
-        if (!this.image) {
+        const firstImage = this.fadeFromImage || this.image;
+        if (!firstImage) {
           return;
         }
 
@@ -440,25 +501,36 @@
           return;
         }
 
-        const imageWidth = this.image.naturalWidth || this.image.width;
-        const imageHeight = this.image.naturalHeight || this.image.height;
-        const sourceX = ((clipX - destX) / destWidth) * imageWidth;
-        const sourceY = ((clipY - destY) / destHeight) * imageHeight;
-        const sourceWidth = (clipWidth / destWidth) * imageWidth;
-        const sourceHeight = (clipHeight / destHeight) * imageHeight;
-
         this.context.imageSmoothingEnabled = true;
-        this.context.drawImage(
-          this.image,
-          sourceX,
-          sourceY,
-          sourceWidth,
-          sourceHeight,
-          clipX,
-          clipY,
-          clipWidth,
-          clipHeight
-        );
+        const drawImage = (image, opacity) => {
+          const imageWidth = image.naturalWidth || image.width;
+          const imageHeight = image.naturalHeight || image.height;
+          const sourceX = ((clipX - destX) / destWidth) * imageWidth;
+          const sourceY = ((clipY - destY) / destHeight) * imageHeight;
+          const sourceWidth = (clipWidth / destWidth) * imageWidth;
+          const sourceHeight = (clipHeight / destHeight) * imageHeight;
+
+          this.context.globalAlpha = opacity;
+          this.context.drawImage(
+            image,
+            sourceX,
+            sourceY,
+            sourceWidth,
+            sourceHeight,
+            clipX,
+            clipY,
+            clipWidth,
+            clipHeight
+          );
+        };
+
+        if (this.fadeFromImage && this.fadeToImage) {
+          drawImage(this.fadeFromImage, 1 - this.fadeProgress);
+          drawImage(this.fadeToImage, this.fadeProgress);
+        } else {
+          drawImage(firstImage, 1);
+        }
+        this.context.globalAlpha = 1;
       }
     });
 
@@ -662,6 +734,23 @@
       animationTimer = window.setTimeout(stepAnimation, delay);
     }
 
+    function fadeToFirstFrame() {
+      if (document.hidden || orderedFrames.length === 0) {
+        scheduleNextFrame(FREEZE_MS);
+        return;
+      }
+
+      const firstFrame = orderedFrames[0];
+      radarCanvasLayer.fadeToFrame(firstFrame, LOOP_FADE_MS, () => {
+        activeFrameIndex = 0;
+        activeFrameTimestamp = firstFrame.timestamp;
+        animationFrameIndex = orderedFrames.length > 1 ? 1 : 0;
+        frameTimeEl.textContent = formatFrameTime(firstFrame.timestamp);
+        updateTimelinePosition(0);
+        scheduleNextFrame(ANIMATION_MS / Math.max(1, orderedFrames.length - 1));
+      });
+    }
+
     function stepAnimation() {
       if (document.hidden) {
         scheduleNextFrame(FREEZE_MS);
@@ -677,21 +766,19 @@
       showFrame(animationFrameIndex);
 
       if (animationFrameIndex >= latestIndex) {
-        animationDirection = -1;
-        animationFrameIndex = Math.max(0, latestIndex - 1);
-        scheduleNextFrame(FREEZE_MS);
+        window.clearTimeout(animationTimer);
+        animationTimer = window.setTimeout(fadeToFirstFrame, FREEZE_MS);
         return;
       }
 
-      if (animationFrameIndex <= 0) {
-        animationDirection = 1;
-      }
-
-      animationFrameIndex += animationDirection;
+      animationFrameIndex += 1;
       scheduleNextFrame(ANIMATION_MS / Math.max(1, latestIndex));
     }
 
     function restartAnimation() {
+      window.clearTimeout(animationTimer);
+      radarCanvasLayer.cancelFade();
+
       if (activeFrameTimestamp > 0 && orderedFrames.length > 0) {
         const timestampIndex = orderedFrames.findIndex((frame) => frame.timestamp === activeFrameTimestamp);
         animationFrameIndex = timestampIndex >= 0
@@ -699,7 +786,6 @@
           : Math.min(activeFrameIndex, orderedFrames.length - 1);
       } else {
         animationFrameIndex = 0;
-        animationDirection = 1;
       }
       stepAnimation();
     }
